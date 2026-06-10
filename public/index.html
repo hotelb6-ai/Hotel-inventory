@@ -654,21 +654,30 @@
 
     function displayProducts() {
       const container = document.getElementById('productsContainer');
-      container.innerHTML = '<table style="width: 100%;"><thead><tr><th>備品名稱</th><th>單箱規格</th><th>操作</th></tr></thead><tbody>';
+      container.innerHTML = '';
+
+      if (allProductsList.length === 0) {
+        container.innerHTML = '<p style="color: #999; text-align: center; padding: 30px;">還沒有備品</p>';
+        return;
+      }
 
       allProductsList.forEach(product => {
-        container.innerHTML += `
-          <tr>
-            <td>${product.name}</td>
-            <td>${product.unit_size}個/箱</td>
-            <td>
-              <button class="btn" style="padding: 6px 12px; font-size: 12px; background: #e74c3c; color: white; border: none; border-radius: 4px; cursor: pointer;" onclick="deleteProduct(${product.id})">刪除</button>
-            </td>
-          </tr>
+        const card = document.createElement('div');
+        card.className = 'card';
+        card.innerHTML = `
+          <div class="card-header">
+            <div class="card-title">📦 ${product.name}</div>
+            <button class="btn btn-danger" style="padding: 8px 12px; font-size: 12px;" onclick="deleteProduct(${product.id})">刪除</button>
+          </div>
+          <div class="card-content">
+            <div class="card-info">
+              <div class="card-info-label">單箱規格</div>
+              <div class="card-info-value">${product.unit_size} 個/箱</div>
+            </div>
+          </div>
         `;
+        container.appendChild(card);
       });
-
-      container.innerHTML += '</tbody></table>';
     }
 
     async function addProduct() {
@@ -740,23 +749,37 @@
 
     function displayUsers() {
       const container = document.getElementById('usersContainer');
-      container.innerHTML = '<table style="width: 100%;"><thead><tr><th>帳號</th><th>館別</th><th>角色</th><th>操作</th></tr></thead><tbody>';
+      container.innerHTML = '';
+
+      if (allUsersList.length === 0) {
+        container.innerHTML = '<p style="color: #999; text-align: center; padding: 30px;">還沒有用戶</p>';
+        return;
+      }
 
       allUsersList.forEach(user => {
-        container.innerHTML += `
-          <tr>
-            <td>${user.username}</td>
-            <td>${user.property_name || '(管理員)'}</td>
-            <td>${user.role === 'admin' ? '管理員' : '員工'}</td>
-            <td>
-              <button class="btn" style="padding: 6px 12px; font-size: 12px; background: #3498db; color: white; border: none; border-radius: 4px; cursor: pointer; margin-right: 5px;" onclick="editUser(${user.id})">編輯</button>
-              <button class="btn" style="padding: 6px 12px; font-size: 12px; background: #e74c3c; color: white; border: none; border-radius: 4px; cursor: pointer;" onclick="deleteUser(${user.id})">刪除</button>
-            </td>
-          </tr>
+        const card = document.createElement('div');
+        card.className = 'card';
+        card.innerHTML = `
+          <div class="card-header">
+            <div class="card-title">👤 ${user.username}</div>
+            <div class="card-actions">
+              <button class="btn" style="background: #3498db; color: white; padding: 8px 12px; font-size: 12px;" onclick="editUser(${user.id})">編輯</button>
+              <button class="btn btn-danger" style="padding: 8px 12px; font-size: 12px;" onclick="deleteUser(${user.id})">刪除</button>
+            </div>
+          </div>
+          <div class="card-content">
+            <div class="card-info">
+              <div class="card-info-label">館別</div>
+              <div class="card-info-value">${user.property_name || '(管理員)'}</div>
+            </div>
+            <div class="card-info">
+              <div class="card-info-label">角色</div>
+              <div class="card-info-value">${user.role === 'admin' ? '🔑 管理員' : '📋 員工'}</div>
+            </div>
+          </div>
         `;
+        container.appendChild(card);
       });
-
-      container.innerHTML += '</tbody></table>';
     }
 
     async function addUser() {

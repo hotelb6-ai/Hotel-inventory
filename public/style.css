@@ -307,25 +307,91 @@ table {
   width: 100%;
   border-collapse: collapse;
   margin-top: 20px;
+  background: white;
 }
 
 thead {
-  background: #f0f0f0;
+  background: #667eea;
+  color: white;
 }
 
 th, td {
-  padding: 12px;
+  padding: 15px;
   text-align: left;
-  border-bottom: 1px solid #ddd;
+  border-bottom: 1px solid #e0e0e0;
 }
 
 th {
   font-weight: 600;
-  color: #333;
+  color: white;
 }
 
 tr:hover {
-  background: #f8f9fa;
+  background: #f5f7ff;
+}
+
+tbody tr {
+  transition: background 0.2s;
+}
+
+/* ===== 卡片式設計 ===== */
+.card {
+  background: white;
+  padding: 20px;
+  margin-bottom: 15px;
+  border-radius: 8px;
+  border-left: 4px solid #667eea;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+}
+
+.card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.card-title {
+  font-weight: 600;
+  color: #333;
+  font-size: 16px;
+}
+
+.card-content {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 15px;
+  margin-bottom: 12px;
+}
+
+.card-info {
+  display: flex;
+  flex-direction: column;
+}
+
+.card-info-label {
+  font-size: 12px;
+  color: #999;
+  margin-bottom: 4px;
+}
+
+.card-info-value {
+  font-size: 14px;
+  color: #333;
+  font-weight: 500;
+}
+
+.card-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.card-actions .btn {
+  padding: 8px 12px;
+  font-size: 13px;
 }
 
 .status-pending {
