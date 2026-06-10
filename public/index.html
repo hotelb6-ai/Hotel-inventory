@@ -49,7 +49,9 @@
         <button class="tab-btn active" onclick="switchTab('inventory')">📝 庫存填報</button>
         <button class="tab-btn" onclick="switchTab('orders')">📦 叫貨單</button>
         <button class="tab-btn" onclick="switchTab('history')">📋 歷史記錄</button>
-        <button class="tab-btn" id="settingsTabBtn" onclick="switchTab('settings')" style="display: none;">⚙️ 設定</button>
+        <button class="tab-btn" id="settingsTabBtn" onclick="switchTab('settings')" style="display: none;">⚙️ 叫貨設定</button>
+        <button class="tab-btn" id="productsTabBtn" onclick="switchTab('products')" style="display: none;">📦 品項管理</button>
+        <button class="tab-btn" id="usersTabBtn" onclick="switchTab('users')" style="display: none;">👥 用戶管理</button>
       </div>
 
       <!-- 庫存填報 -->
@@ -100,6 +102,49 @@
         </div>
 
         <div id="quotasContainer"></div>
+      </div>
+
+      <!-- 品項管理 -->
+      <div id="productsTab" class="tab-content">
+        <h2>📦 品項管理</h2>
+        <p style="color: #666; margin-bottom: 20px;">管理所有備品項目</p>
+
+        <div id="productsMessage" class="success-message"></div>
+        <div id="productsError" class="error-message"></div>
+
+        <div style="margin-bottom: 20px; padding: 15px; background: #f5f5f5; border-radius: 5px;">
+          <h3 style="margin-bottom: 15px;">新增備品</h3>
+          <div style="display: grid; grid-template-columns: 1fr 1fr auto; gap: 10px;">
+            <input type="text" id="newProductName" placeholder="備品名稱" style="padding: 10px; border: 1px solid #ddd; border-radius: 4px;">
+            <input type="number" id="newProductSize" placeholder="單箱規格（個數）" min="1" style="padding: 10px; border: 1px solid #ddd; border-radius: 4px;">
+            <button class="btn btn-primary" onclick="addProduct()" style="padding: 10px 20px;">新增</button>
+          </div>
+        </div>
+
+        <div id="productsContainer"></div>
+      </div>
+
+      <!-- 用戶管理 -->
+      <div id="usersTab" class="tab-content">
+        <h2>👥 用戶管理</h2>
+        <p style="color: #666; margin-bottom: 20px;">管理各館登入帳號和密碼</p>
+
+        <div id="usersMessage" class="success-message"></div>
+        <div id="usersError" class="error-message"></div>
+
+        <div style="margin-bottom: 20px; padding: 15px; background: #f5f5f5; border-radius: 5px;">
+          <h3 style="margin-bottom: 15px;">新增用戶</h3>
+          <div style="display: grid; grid-template-columns: 1fr 1fr 1fr auto; gap: 10px;">
+            <input type="text" id="newUsername" placeholder="帳號" style="padding: 10px; border: 1px solid #ddd; border-radius: 4px;">
+            <input type="password" id="newPassword" placeholder="密碼" style="padding: 10px; border: 1px solid #ddd; border-radius: 4px;">
+            <select id="newPropertyId" style="padding: 10px; border: 1px solid #ddd; border-radius: 4px;">
+              <option value="">-- 選擇館別 --</option>
+            </select>
+            <button class="btn btn-primary" onclick="addUser()" style="padding: 10px 20px;">新增</button>
+          </div>
+        </div>
+
+        <div id="usersContainer"></div>
       </div>
     </div>
   </div>
@@ -158,11 +203,17 @@
       // 只有管理員才能看到設定
       if (currentUser.role === 'admin') {
         document.getElementById('settingsTabBtn').style.display = 'block';
+        document.getElementById('productsTabBtn').style.display = 'block';
+        document.getElementById('usersTabBtn').style.display = 'block';
         document.getElementById('inventoryTab').style.display = 'none';
         loadOrders();
         loadQuotas();
+        loadProducts();
+        loadUsers();
       } else {
         document.getElementById('settingsTabBtn').style.display = 'none';
+        document.getElementById('productsTabBtn').style.display = 'none';
+        document.getElementById('usersTabBtn').style.display = 'none';
         loadInventoryForm();
       }
     }
@@ -588,6 +639,199 @@
       }
     }
 
+    // ===== 品項管理 =====
+    let allProductsList = [];
+
+    async function loadProducts() {
+      try {
+        const res = await fetch('/api/products');
+        allProductsList = await res.json();
+        displayProducts();
+      } catch (err) {
+        console.error('獲取備品失敗:', err);
+      }
+    }
+
+    function displayProducts() {
+      const container = document.getElementById('productsContainer');
+      container.innerHTML = '<table style="width: 100%;"><thead><tr><th>備品名稱</th><th>單箱規格</th><th>操作</th></tr></thead><tbody>';
+
+      allProductsList.forEach(product => {
+        container.innerHTML += `
+          <tr>
+            <td>${product.name}</td>
+            <td>${product.unit_size}個/箱</td>
+            <td>
+              <button class="btn" style="padding: 6px 12px; font-size: 12px; background: #e74c3c; color: white; border: none; border-radius: 4px; cursor: pointer;" onclick="deleteProduct(${product.id})">刪除</button>
+            </td>
+          </tr>
+        `;
+      });
+
+      container.innerHTML += '</tbody></table>';
+    }
+
+    async function addProduct() {
+      const name = document.getElementById('newProductName').value;
+      const size = parseInt(document.getElementById('newProductSize').value);
+
+      if (!name || !size) {
+        showError('productsError', '請填寫完整資訊');
+        return;
+      }
+
+      try {
+        const res = await fetch('/api/products', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name, unit_size: size })
+        });
+
+        const data = await res.json();
+        if (data.success) {
+          showSuccess('productsMessage', '✅ 備品已新增');
+          document.getElementById('newProductName').value = '';
+          document.getElementById('newProductSize').value = '';
+          loadProducts();
+        }
+      } catch (err) {
+        showError('productsError', '新增失敗: ' + err.message);
+      }
+    }
+
+    async function deleteProduct(id) {
+      if (!confirm('確定要刪除此備品嗎?')) return;
+
+      try {
+        const res = await fetch(`/api/products/${id}`, { method: 'DELETE' });
+        const data = await res.json();
+        if (data.success) {
+          showSuccess('productsMessage', '✅ 備品已刪除');
+          loadProducts();
+        }
+      } catch (err) {
+        showError('productsError', '刪除失敗: ' + err.message);
+      }
+    }
+
+    // ===== 用戶管理 =====
+    let allUsersList = [];
+
+    async function loadUsers() {
+      try {
+        const res = await fetch('/api/users');
+        allUsersList = await res.json();
+
+        // 填充館別下拉選單
+        const select = document.getElementById('newPropertyId');
+        select.innerHTML = '<option value="">-- 選擇館別 --</option>';
+        properties.forEach(prop => {
+          const option = document.createElement('option');
+          option.value = prop.id;
+          option.textContent = prop.name;
+          select.appendChild(option);
+        });
+
+        displayUsers();
+      } catch (err) {
+        console.error('獲取用戶失敗:', err);
+      }
+    }
+
+    function displayUsers() {
+      const container = document.getElementById('usersContainer');
+      container.innerHTML = '<table style="width: 100%;"><thead><tr><th>帳號</th><th>館別</th><th>角色</th><th>操作</th></tr></thead><tbody>';
+
+      allUsersList.forEach(user => {
+        container.innerHTML += `
+          <tr>
+            <td>${user.username}</td>
+            <td>${user.property_name || '(管理員)'}</td>
+            <td>${user.role === 'admin' ? '管理員' : '員工'}</td>
+            <td>
+              <button class="btn" style="padding: 6px 12px; font-size: 12px; background: #3498db; color: white; border: none; border-radius: 4px; cursor: pointer; margin-right: 5px;" onclick="editUser(${user.id})">編輯</button>
+              <button class="btn" style="padding: 6px 12px; font-size: 12px; background: #e74c3c; color: white; border: none; border-radius: 4px; cursor: pointer;" onclick="deleteUser(${user.id})">刪除</button>
+            </td>
+          </tr>
+        `;
+      });
+
+      container.innerHTML += '</tbody></table>';
+    }
+
+    async function addUser() {
+      const username = document.getElementById('newUsername').value;
+      const password = document.getElementById('newPassword').value;
+      const propertyId = document.getElementById('newPropertyId').value;
+
+      if (!username || !password) {
+        showError('usersError', '請填寫帳號和密碼');
+        return;
+      }
+
+      try {
+        const res = await fetch('/api/users', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            username,
+            password,
+            property_id: propertyId ? parseInt(propertyId) : null,
+            role: propertyId ? 'staff' : 'admin'
+          })
+        });
+
+        const data = await res.json();
+        if (data.success) {
+          showSuccess('usersMessage', '✅ 用戶已新增');
+          document.getElementById('newUsername').value = '';
+          document.getElementById('newPassword').value = '';
+          document.getElementById('newPropertyId').value = '';
+          loadUsers();
+        }
+      } catch (err) {
+        showError('usersError', '新增失敗: ' + err.message);
+      }
+    }
+
+    async function deleteUser(id) {
+      if (!confirm('確定要刪除此用戶嗎?')) return;
+
+      try {
+        const res = await fetch(`/api/users/${id}`, { method: 'DELETE' });
+        const data = await res.json();
+        if (data.success) {
+          showSuccess('usersMessage', '✅ 用戶已刪除');
+          loadUsers();
+        }
+      } catch (err) {
+        showError('usersError', '刪除失敗: ' + err.message);
+      }
+    }
+
+    function editUser(id) {
+      const user = allUsersList.find(u => u.id === id);
+      const newPassword = prompt(`編輯用戶: ${user.username}\n\n輸入新密碼（留白則不改）:`, user.password);
+
+      if (newPassword === null) return;
+
+      fetch(`/api/users/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          username: user.username,
+          password: newPassword || user.password,
+          property_id: user.property_id,
+          role: user.role
+        })
+      }).then(res => res.json()).then(data => {
+        if (data.success) {
+          showSuccess('usersMessage', '✅ 用戶已更新');
+          loadUsers();
+        }
+      });
+    }
+
     // ===== 修改 switchTab 函數支持設定 =====
     const originalSwitchTab = switchTab;
     switchTab = function(tabName) {
@@ -610,6 +854,10 @@
         loadHistory();
       } else if (tabName === 'settings') {
         loadQuotas();
+      } else if (tabName === 'products') {
+        loadProducts();
+      } else if (tabName === 'users') {
+        loadUsers();
       }
     };
   </script>

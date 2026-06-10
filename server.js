@@ -469,6 +469,105 @@ app.get('/api/inventory/:propertyId', async (req, res) => {
   }
 });
 
+// ===== 品項管理 API =====
+
+// 新增備品
+app.post('/api/products', async (req, res) => {
+  const { name, unit_size } = req.body;
+  try {
+    const result = await pool.query(
+      'INSERT INTO products (name, unit_size, threshold_percent) VALUES ($1, $2, $3) RETURNING *',
+      [name, unit_size, 50]
+    );
+    res.json({ success: true, product: result.rows[0] });
+  } catch (err) {
+    res.status(500).json({ error: '新增備品失敗' });
+  }
+});
+
+// 更新備品
+app.put('/api/products/:id', async (req, res) => {
+  const { name, unit_size } = req.body;
+  const id = req.params.id;
+  try {
+    await pool.query(
+      'UPDATE products SET name = $1, unit_size = $2 WHERE id = $3',
+      [name, unit_size, id]
+    );
+    res.json({ success: true, message: '更新成功' });
+  } catch (err) {
+    res.status(500).json({ error: '更新失敗' });
+  }
+});
+
+// 刪除備品
+app.delete('/api/products/:id', async (req, res) => {
+  const id = req.params.id;
+  try {
+    await pool.query('DELETE FROM products WHERE id = $1', [id]);
+    res.json({ success: true, message: '刪除成功' });
+  } catch (err) {
+    res.status(500).json({ error: '刪除失敗' });
+  }
+});
+
+// ===== 用戶管理 API =====
+
+// 獲取所有用戶
+app.get('/api/users', async (req, res) => {
+  try {
+    const result = await pool.query(`
+      SELECT u.id, u.username, u.property_id, u.role, pr.name as property_name
+      FROM users u
+      LEFT JOIN properties pr ON u.property_id = pr.id
+      ORDER BY u.id
+    `);
+    res.json(result.rows);
+  } catch (err) {
+    res.status(500).json({ error: '資料庫錯誤' });
+  }
+});
+
+// 新增用戶
+app.post('/api/users', async (req, res) => {
+  const { username, password, property_id, role } = req.body;
+  try {
+    const result = await pool.query(
+      'INSERT INTO users (username, password, property_id, role) VALUES ($1, $2, $3, $4) RETURNING id, username, property_id, role',
+      [username, password, property_id, role]
+    );
+    res.json({ success: true, user: result.rows[0] });
+  } catch (err) {
+    res.status(500).json({ error: '新增用戶失敗' });
+  }
+});
+
+// 更新用戶
+app.put('/api/users/:id', async (req, res) => {
+  const { username, password, property_id, role } = req.body;
+  const id = req.params.id;
+  try {
+    await pool.query(
+      'UPDATE users SET username = $1, password = $2, property_id = $3, role = $4 WHERE id = $5',
+      [username, password, property_id, role, id]
+    );
+    res.json({ success: true, message: '更新成功' });
+  } catch (err) {
+    res.status(500).json({ error: '更新失敗' });
+  }
+});
+
+// 刪除用戶
+app.delete('/api/users/:id', async (req, res) => {
+  const id = req.params.id;
+  try {
+    await pool.query('DELETE FROM users WHERE id = $1', [id]);
+    res.json({ success: true, message: '刪除成功' });
+  } catch (err) {
+    res.status(500).json({ error: '刪除失敗' });
+  }
+});
+
 // 啟動伺服器
 app.listen(PORT, async () => {
   console.log(`\n🚀 飯店庫存系統已啟動`);
