@@ -1,0 +1,617 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>飯店庫存管理系統</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <!-- 登入頁 -->
+  <div id="loginPage" class="page">
+    <div class="login-container">
+      <div class="login-box">
+        <h1>🏨 飯店庫存管理</h1>
+        <div id="loginError" class="error-message"></div>
+        <form id="loginForm" onsubmit="handleLogin(event)">
+          <div class="form-group">
+            <label for="username">帳號</label>
+            <input type="text" id="username" placeholder="輸入帳號" required>
+          </div>
+          <div class="form-group">
+            <label for="password">密碼</label>
+            <input type="password" id="password" placeholder="輸入密碼" required>
+          </div>
+          <button type="submit" class="btn btn-primary" style="width: 100%;">登入</button>
+        </form>
+        <div style="margin-top: 20px; padding-top: 20px; border-top: 1px solid #eee; font-size: 12px; color: #999;">
+          <strong>測試帳號：</strong><br>
+          管理員: admin / admin123<br>
+          各館: 星美/俞美/中正/福榮/大西/小西/福壽/大東 / pass123
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 儀表板 -->
+  <div id="dashboardPage" class="page" style="display: none;">
+    <div class="container">
+      <div class="dashboard-header">
+        <h1>📊 飯店庫存管理系統</h1>
+        <div class="user-info">
+          <strong id="userDisplay"></strong>
+          <button class="logout-btn" onclick="handleLogout()">登出</button>
+        </div>
+      </div>
+
+      <!-- 標籤 -->
+      <div class="tabs">
+        <button class="tab-btn active" onclick="switchTab('inventory')">📝 庫存填報</button>
+        <button class="tab-btn" onclick="switchTab('orders')">📦 叫貨單</button>
+        <button class="tab-btn" onclick="switchTab('history')">📋 歷史記錄</button>
+        <button class="tab-btn" id="settingsTabBtn" onclick="switchTab('settings')" style="display: none;">⚙️ 設定</button>
+      </div>
+
+      <!-- 庫存填報 -->
+      <div id="inventoryTab" class="tab-content active">
+        <h2>月底庫存填報</h2>
+        <p style="color: #666; margin-bottom: 20px;">請於月底 30 日前填報各項備品的剩餘庫存量</p>
+
+        <div id="successMessage" class="success-message"></div>
+        <div id="errorMessage" class="error-message"></div>
+
+        <div id="inventoryForm" class="inventory-form"></div>
+
+        <div class="btn-group">
+          <button class="btn btn-primary" onclick="submitInventory()">✅ 提交庫存</button>
+          <button class="btn" onclick="location.reload()" style="background: #95a5a6; color: white;">🔄 重設表單</button>
+        </div>
+      </div>
+
+      <!-- 叫貨單 -->
+      <div id="ordersTab" class="tab-content">
+        <h2>叫貨單</h2>
+        <p style="color: #666; margin-bottom: 20px;">系統根據庫存自動生成的叫貨單</p>
+
+        <div id="ordersContainer"></div>
+      </div>
+
+      <!-- 歷史記錄 -->
+      <div id="historyTab" class="tab-content">
+        <h2>庫存歷史記錄</h2>
+        <p style="color: #666; margin-bottom: 20px;">過去 12 個月的庫存記錄</p>
+
+        <div id="historyContainer"></div>
+      </div>
+
+      <!-- 設定 -->
+      <div id="settingsTab" class="tab-content">
+        <h2>⚙️ 每月叫貨量設定</h2>
+        <p style="color: #666; margin-bottom: 20px;">設定各館別每月的固定叫貨箱數</p>
+
+        <div id="settingsMessage" class="success-message"></div>
+        <div id="settingsError" class="error-message"></div>
+
+        <div style="margin-bottom: 20px;">
+          <label for="propertySelect" style="font-weight: 600;">選擇館別：</label>
+          <select id="propertySelect" onchange="loadQuotasForProperty()" style="padding: 10px; margin-left: 10px; border-radius: 5px; border: 1px solid #ddd;">
+            <option value="">-- 所有館別 --</option>
+          </select>
+        </div>
+
+        <div id="quotasContainer"></div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // ===== 狀態管理 =====
+    let currentUser = null;
+    let products = [];
+    let properties = [];
+
+    // ===== 初始化 =====
+    window.addEventListener('load', () => {
+      const savedUser = localStorage.getItem('user');
+      if (savedUser) {
+        currentUser = JSON.parse(savedUser);
+        showDashboard();
+      }
+    });
+
+    // ===== 登入 =====
+    async function handleLogin(e) {
+      e.preventDefault();
+      const username = document.getElementById('username').value;
+      const password = document.getElementById('password').value;
+
+      try {
+        const res = await fetch('/api/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username, password })
+        });
+
+        const data = await res.json();
+
+        if (data.success) {
+          currentUser = data.user;
+          localStorage.setItem('user', JSON.stringify(currentUser));
+          showDashboard();
+        } else {
+          showError('loginError', data.error || '登入失敗');
+        }
+      } catch (err) {
+        showError('loginError', '網路錯誤: ' + err.message);
+      }
+    }
+
+    // ===== 顯示儀表板 =====
+    async function showDashboard() {
+      document.getElementById('loginPage').style.display = 'none';
+      document.getElementById('dashboardPage').style.display = 'block';
+      document.getElementById('userDisplay').textContent = `👤 ${currentUser.username} (${currentUser.role === 'admin' ? '管理員' : '員工'})`;
+
+      await loadProducts();
+      await loadProperties();
+
+      // 只有管理員才能看到設定
+      if (currentUser.role === 'admin') {
+        document.getElementById('settingsTabBtn').style.display = 'block';
+        document.getElementById('inventoryTab').style.display = 'none';
+        loadOrders();
+        loadQuotas();
+      } else {
+        document.getElementById('settingsTabBtn').style.display = 'none';
+        loadInventoryForm();
+      }
+    }
+
+    // ===== 登出 =====
+    function handleLogout() {
+      if (confirm('確定要登出嗎?')) {
+        currentUser = null;
+        localStorage.removeItem('user');
+        document.getElementById('loginPage').style.display = 'block';
+        document.getElementById('dashboardPage').style.display = 'none';
+        document.getElementById('loginForm').reset();
+      }
+    }
+
+    // ===== 獲取備品列表 =====
+    async function loadProducts() {
+      try {
+        const res = await fetch('/api/products');
+        products = await res.json();
+      } catch (err) {
+        console.error('獲取備品失敗:', err);
+      }
+    }
+
+    // ===== 獲取館別列表 =====
+    async function loadProperties() {
+      try {
+        const res = await fetch('/api/properties');
+        properties = await res.json();
+      } catch (err) {
+        console.error('獲取館別失敗:', err);
+      }
+    }
+
+    // ===== 加載庫存表單 =====
+    function loadInventoryForm() {
+      const form = document.getElementById('inventoryForm');
+      form.innerHTML = '';
+
+      products.forEach(product => {
+        const threshold = Math.ceil(product.unit_size * 0.5);
+        const item = document.createElement('div');
+        item.className = 'product-item';
+        item.innerHTML = `
+          <div class="product-name">
+            ${product.name}
+            <span style="font-size: 12px; color: #999;">(${product.unit_size}個/箱)</span>
+          </div>
+          <div class="product-spec">
+            臨界值: ${threshold}個 (50%)
+          </div>
+          <div class="product-input">
+            <input type="number"
+              id="product_${product.id}"
+              placeholder="輸入剩餘數量"
+              min="0"
+              onchange="checkThreshold(${product.id}, ${threshold})"
+              style="flex: 1;">
+            <span id="warning_${product.id}" class="threshold-warning"></span>
+          </div>
+        `;
+        form.appendChild(item);
+      });
+    }
+
+    // ===== 檢查臨界值 =====
+    function checkThreshold(productId, threshold) {
+      const input = document.getElementById(`product_${productId}`);
+      const warning = document.getElementById(`warning_${productId}`);
+      const quantity = parseInt(input.value) || 0;
+
+      if (quantity < threshold) {
+        warning.textContent = '⚠️ 低於臨界值，需要叫貨';
+      } else {
+        warning.textContent = '✅ 庫存充足';
+      }
+    }
+
+    // ===== 提交庫存 =====
+    async function submitInventory() {
+      const inventory_data = [];
+      let hasData = false;
+
+      products.forEach(product => {
+        const input = document.getElementById(`product_${product.id}`);
+        const quantity = input.value;
+
+        if (quantity !== '' && quantity !== null) {
+          inventory_data.push({
+            product_id: product.id,
+            quantity: parseInt(quantity)
+          });
+          hasData = true;
+        }
+      });
+
+      if (!hasData) {
+        showError('errorMessage', '請至少填寫一項備品庫存');
+        return;
+      }
+
+      try {
+        const res = await fetch('/api/inventory/submit', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            property_id: currentUser.property_id,
+            inventory_data: inventory_data
+          })
+        });
+
+        const data = await res.json();
+
+        if (data.success) {
+          showSuccess('successMessage', '✅ ' + (data.message || '庫存已成功提交'));
+          setTimeout(() => {
+            loadOrders();
+            switchTab('orders');
+          }, 1500);
+        } else {
+          showError('errorMessage', data.error || '提交失敗');
+        }
+      } catch (err) {
+        showError('errorMessage', '網路錯誤: ' + err.message);
+      }
+    }
+
+    // ===== 加載叫貨單 =====
+    async function loadOrders() {
+      try {
+        const res = await fetch('/api/orders/latest');
+        const orders = await res.json();
+
+        const container = document.getElementById('ordersContainer');
+        container.innerHTML = '';
+
+        if (orders.length === 0) {
+          container.innerHTML = '<p style="color: #999;">還沒有叫貨單</p>';
+          return;
+        }
+
+        // 如果是員工，只顯示相關的訂單
+        const filteredOrders = currentUser.role === 'admin'
+          ? orders
+          : orders.map(order => ({
+              ...order,
+              items: order.items.filter(item =>
+                item.property_id === currentUser.property_id ||
+                (currentUser.property_id === 3 && item.property_id === 4) ||
+                (currentUser.property_id === 4 && item.property_id === 3)
+              )
+            })).filter(order => order.items.length > 0);
+
+        filteredOrders.forEach(order => {
+          const orderDiv = document.createElement('div');
+          orderDiv.className = 'product-item';
+          orderDiv.style.marginBottom = '20px';
+
+          let itemsHTML = '<table style="width: 100%; margin-top: 10px;"><thead><tr><th>館別</th><th>備品</th><th>剩餘量</th><th>叫貨箱數</th></tr></thead><tbody>';
+
+          order.items.forEach(item => {
+            itemsHTML += `<tr>
+              <td>${item.property_name}</td>
+              <td>${item.product_name}</td>
+              <td>${item.quantity_needed}個</td>
+              <td>${item.order_boxes}箱</td>
+            </tr>`;
+          });
+
+          itemsHTML += '</tbody></table>';
+
+          orderDiv.innerHTML = `
+            <div class="product-name">
+              訂單編號 #${order.id}
+              <span class="status-${order.status}">${order.status === 'pending' ? '待處理' : '已完成'}</span>
+            </div>
+            <div class="product-spec">訂單日期: ${order.order_date}</div>
+            ${itemsHTML}
+          `;
+          container.appendChild(orderDiv);
+        });
+      } catch (err) {
+        console.error('獲取訂單失敗:', err);
+      }
+    }
+
+    // ===== 加載歷史記錄 =====
+    async function loadHistory() {
+      if (!currentUser.property_id) {
+        document.getElementById('historyContainer').innerHTML = '<p>管理員無法查看單個館別的歷史記錄</p>';
+        return;
+      }
+
+      try {
+        const res = await fetch(`/api/inventory/${currentUser.property_id}`);
+        const records = await res.json();
+
+        const container = document.getElementById('historyContainer');
+        container.innerHTML = '';
+
+        if (records.length === 0) {
+          container.innerHTML = '<p style="color: #999;">還沒有庫存記錄</p>';
+          return;
+        }
+
+        // 按日期分組
+        const groupedByDate = {};
+        records.forEach(record => {
+          if (!groupedByDate[record.recorded_date]) {
+            groupedByDate[record.recorded_date] = [];
+          }
+          groupedByDate[record.recorded_date].push(record);
+        });
+
+        Object.entries(groupedByDate)
+          .sort(([dateA], [dateB]) => dateB.localeCompare(dateA))
+          .forEach(([date, items]) => {
+            const dateDiv = document.createElement('div');
+            dateDiv.className = 'product-item';
+            dateDiv.style.marginBottom = '20px';
+
+            let itemsHTML = '<table style="width: 100%; margin-top: 10px;"><thead><tr><th>備品</th><th>剩餘量</th><th>規格</th></tr></thead><tbody>';
+
+            items.forEach(item => {
+              itemsHTML += `<tr>
+                <td>${item.product_name}</td>
+                <td>${item.quantity}個</td>
+                <td>${item.unit_size}個/箱</td>
+              </tr>`;
+            });
+
+            itemsHTML += '</tbody></table>';
+
+            dateDiv.innerHTML = `
+              <div class="product-name">
+                📅 ${date}
+              </div>
+              ${itemsHTML}
+            `;
+            container.appendChild(dateDiv);
+          });
+      } catch (err) {
+        console.error('獲取歷史記錄失敗:', err);
+      }
+    }
+
+    // ===== 切換標籤 =====
+    function switchTab(tabName) {
+      // 隱藏所有標籤
+      document.querySelectorAll('.tab-content').forEach(tab => {
+        tab.classList.remove('active');
+      });
+      document.querySelectorAll('.tab-btn').forEach(btn => {
+        btn.classList.remove('active');
+      });
+
+      // 顯示選定的標籤
+      document.getElementById(tabName + 'Tab').classList.add('active');
+      event.target.classList.add('active');
+
+      // 加載對應的內容
+      if (tabName === 'orders') {
+        loadOrders();
+      } else if (tabName === 'history') {
+        loadHistory();
+      }
+    }
+
+    // ===== 工具函數 =====
+    function showSuccess(elementId, message) {
+      const el = document.getElementById(elementId);
+      el.textContent = message;
+      el.classList.add('show');
+      setTimeout(() => {
+        el.classList.remove('show');
+      }, 4000);
+    }
+
+    function showError(elementId, message) {
+      const el = document.getElementById(elementId);
+      el.textContent = '❌ ' + message;
+      el.classList.add('show');
+      setTimeout(() => {
+        el.classList.remove('show');
+      }, 4000);
+    }
+
+    // ===== 月度配額設定 =====
+    let allQuotas = [];
+
+    async function loadQuotas() {
+      try {
+        const res = await fetch('/api/monthly-quotas');
+        allQuotas = await res.json();
+
+        // 填充館別下拉選單
+        const select = document.getElementById('propertySelect');
+        select.innerHTML = '<option value="">-- 所有館別 --</option>';
+        properties.forEach(prop => {
+          const option = document.createElement('option');
+          option.value = prop.id;
+          option.textContent = prop.name;
+          select.appendChild(option);
+        });
+
+        displayQuotas(allQuotas);
+      } catch (err) {
+        console.error('獲取月度配額失敗:', err);
+      }
+    }
+
+    function loadQuotasForProperty() {
+      const propertyId = document.getElementById('propertySelect').value;
+      if (propertyId) {
+        const filtered = allQuotas.filter(q => q.property_id == propertyId);
+        displayQuotas(filtered);
+      } else {
+        displayQuotas(allQuotas);
+      }
+    }
+
+    function displayQuotas(quotas) {
+      const container = document.getElementById('quotasContainer');
+      container.innerHTML = '';
+
+      if (quotas.length === 0) {
+        container.innerHTML = '<p style="color: #999;">沒有配額數據</p>';
+        return;
+      }
+
+      // 按備品名稱分組
+      const groupedByProduct = {};
+      quotas.forEach(quota => {
+        if (!groupedByProduct[quota.product_name]) {
+          groupedByProduct[quota.product_name] = [];
+        }
+        groupedByProduct[quota.product_name].push(quota);
+      });
+
+      // 顯示表格
+      Object.entries(groupedByProduct).forEach(([productName, quotaList]) => {
+        const productItem = document.createElement('div');
+        productItem.className = 'product-item';
+        productItem.style.marginBottom = '20px';
+
+        const productInfo = products.find(p => p.name === productName);
+        const unitSize = productInfo ? productInfo.unit_size : '?';
+
+        let tableHTML = `
+          <div class="product-name">
+            ${productName}
+            <span style="font-size: 12px; color: #999;">(${unitSize}個/箱)</span>
+          </div>
+          <table style="width: 100%; margin-top: 10px;">
+            <thead>
+              <tr>
+                <th>館別</th>
+                <th style="width: 150px;">每月叫貨箱數</th>
+                <th style="width: 100px;">操作</th>
+              </tr>
+            </thead>
+            <tbody>
+        `;
+
+        quotaList.forEach(quota => {
+          tableHTML += `
+            <tr>
+              <td>${quota.property_name}</td>
+              <td>
+                <input type="number"
+                  id="quota_${quota.id}"
+                  value="${quota.boxes_per_month}"
+                  min="0"
+                  max="100"
+                  style="width: 80px; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
+              </td>
+              <td>
+                <button class="btn" style="padding: 6px 12px; font-size: 12px; background: #667eea; color: white; border: none; border-radius: 4px; cursor: pointer;"
+                  onclick="updateQuota(${quota.id})">保存</button>
+              </td>
+            </tr>
+          `;
+        });
+
+        tableHTML += `
+            </tbody>
+          </table>
+        `;
+
+        productItem.innerHTML = tableHTML;
+        container.appendChild(productItem);
+      });
+    }
+
+    async function updateQuota(quotaId) {
+      const input = document.getElementById(`quota_${quotaId}`);
+      const newValue = parseInt(input.value);
+
+      if (newValue < 0 || isNaN(newValue)) {
+        showError('settingsError', '請輸入有效的箱數');
+        return;
+      }
+
+      try {
+        const res = await fetch(`/api/monthly-quotas/${quotaId}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ boxes_per_month: newValue })
+        });
+
+        const data = await res.json();
+        if (data.success) {
+          showSuccess('settingsMessage', '✅ 設定已保存');
+          // 更新本地數據
+          const quota = allQuotas.find(q => q.id === quotaId);
+          if (quota) quota.boxes_per_month = newValue;
+        } else {
+          showError('settingsError', '保存失敗');
+        }
+      } catch (err) {
+        showError('settingsError', '網路錯誤: ' + err.message);
+      }
+    }
+
+    // ===== 修改 switchTab 函數支持設定 =====
+    const originalSwitchTab = switchTab;
+    switchTab = function(tabName) {
+      // 隱藏所有標籤
+      document.querySelectorAll('.tab-content').forEach(tab => {
+        tab.classList.remove('active');
+      });
+      document.querySelectorAll('.tab-btn').forEach(btn => {
+        btn.classList.remove('active');
+      });
+
+      // 顯示選定的標籤
+      document.getElementById(tabName + 'Tab').classList.add('active');
+      event.target.classList.add('active');
+
+      // 加載對應的內容
+      if (tabName === 'orders') {
+        loadOrders();
+      } else if (tabName === 'history') {
+        loadHistory();
+      } else if (tabName === 'settings') {
+        loadQuotas();
+      }
+    };
+  </script>
+</body>
+</html>
