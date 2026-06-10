@@ -14,9 +14,14 @@ app.use(cors());
 app.use(express.static('public'));
 
 // 資料庫連接
-let db = new sqlite3.Database('./db.sqlite', (err) => {
+const dbPath = process.env.DATABASE_URL || './db.sqlite';
+let db = new sqlite3.Database(dbPath, (err) => {
   if (err) {
-    console.error('資料庫連接失敗:', err);
+    console.error('❌ 資料庫連接失敗:', err);
+    // 即使資料庫失敗也讓服務器啟動
+    setTimeout(() => {
+      startServer();
+    }, 1000);
   } else {
     console.log('✅ 資料庫連接成功');
     initDatabase();
@@ -505,15 +510,24 @@ app.get('/api/inventory/:propertyId', (req, res) => {
   );
 });
 
-// 啟動伺服器
-app.listen(PORT, () => {
-  console.log(`\n🚀 飯店庫存系統已啟動`);
-  console.log(`📍 訪問地址: http://localhost:${PORT}`);
-  console.log(`\n登入帳號:`);
-  console.log(`  👤 管理員: admin / admin123`);
-  console.log(`  🏨 各館別: 星美/俞美/中正/福榮/大西/小西/福壽/大東 / pass123`);
-  console.log(`\n按 Ctrl+C 停止服務\n`);
-});
+// 啟動伺服器函數
+function startServer() {
+  app.listen(PORT, () => {
+    console.log(`\n🚀 飯店庫存系統已啟動`);
+    console.log(`📍 訪問地址: http://localhost:${PORT}`);
+    console.log(`\n登入帳號:`);
+    console.log(`  👤 管理員: admin / admin123`);
+    console.log(`  🏨 各館別: 星美/俞美/中正/福榮/大西/小西/福壽/大東 / pass123`);
+    console.log(`\n按 Ctrl+C 停止服務\n`);
+  });
+}
+
+// 資料庫初始化完成後啟動
+if (db) {
+  setTimeout(() => {
+    startServer();
+  }, 2000);
+}
 
 // 優雅關閉
 process.on('SIGINT', () => {
