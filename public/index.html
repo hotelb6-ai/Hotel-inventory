@@ -510,10 +510,13 @@
         const res = await fetch('/api/monthly-quotas');
         allQuotas = await res.json();
 
-        // 填充館別下拉選單
+        // 填充館別下拉選單（隱藏福榮）
         const select = document.getElementById('propertySelect');
         select.innerHTML = '<option value="">-- 所有館別 --</option>';
         properties.forEach(prop => {
+          // 隱藏福榮（id=4），因為中正和福榮合併
+          if (prop.name === '福榮') return;
+
           const option = document.createElement('option');
           option.value = prop.id;
           option.textContent = prop.name;
@@ -529,10 +532,124 @@
     function loadQuotasForProperty() {
       const propertyId = document.getElementById('propertySelect').value;
       if (propertyId) {
-        const filtered = allQuotas.filter(q => q.property_id == propertyId);
-        displayQuotasByProduct(filtered);
+        // 中正（id=3）和福榮（id=4）合併
+        let filtered = allQuotas.filter(q => q.property_id == propertyId);
+        if (propertyId == 3) {
+          // 如果選擇中正，加入福榮的配額
+          const furongQuotas = allQuotas.filter(q => q.property_id == 4);
+          filtered = filtered.concat(furongQuotas);
+        }
+        displayQuotasByProperty(filtered, propertyId);
       } else {
         displayQuotas(allQuotas);
+      }
+    }
+
+    // 按館別顯示（選擇特定館別時，顯示該館及合併館別的配額）
+    function displayQuotasByProperty(quotas, propertyId) {
+      const container = document.getElementById('quotasContainer');
+      container.innerHTML = '';
+
+      if (quotas.length === 0) {
+        container.innerHTML = '<p style="color: #999;">沒有配額數據</p>';
+        return;
+      }
+
+      // 按備品名稱分組
+      const groupedByProduct = {};
+      quotas.forEach(quota => {
+        if (!groupedByProduct[quota.product_name]) {
+          groupedByProduct[quota.product_name] = [];
+        }
+        groupedByProduct[quota.product_name].push(quota);
+      });
+
+      // 顏色陣列
+      const colors = ['#FF6B6B', '#4ECDC4', '#FFE66D', '#95E1D3', '#F38181', '#AA96DA', '#FCBAD3', '#A8D8EA', '#FFB4B4', '#A4DE6C', '#FF8B94', '#FFD93D'];
+      let colorIndex = 0;
+
+      // 3 列網格
+      const gridDiv = document.createElement('div');
+      gridDiv.style.cssText = 'display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px;';
+
+      Object.entries(groupedByProduct).forEach(([productName, quotaList]) => {
+        const card = document.createElement('div');
+        const bgColor = colors[colorIndex % colors.length];
+
+        // 合併中正和福榮的配額
+        let totalBoxes = 0;
+        const propertyNames = [];
+        quotaList.forEach(q => {
+          totalBoxes += q.boxes_per_month;
+          if (!propertyNames.includes(q.property_name)) {
+            propertyNames.push(q.property_name);
+          }
+        });
+
+        const mainQuota = quotaList[0]; // 用第一個配額的 id 來保存
+
+        card.style.cssText = `
+          background: ${bgColor};
+          padding: 16px;
+          border-radius: 10px;
+          box-shadow: 0 3px 8px rgba(0,0,0,0.12);
+          color: #333;
+          text-align: center;
+          display: flex;
+          flex-direction: column;
+          justify-content: space-between;
+          min-height: 220px;
+        `;
+        card.innerHTML = `
+          <div>
+            <div style="font-size: 11px; color: rgba(0,0,0,0.5); margin-bottom: 6px; letter-spacing: 0.5px;">館別</div>
+            <div style="font-weight: 700; font-size: 16px; color: #222;">${propertyNames.join(' + ')}</div>
+          </div>
+          <div>
+            <div style="font-size: 11px; color: rgba(0,0,0,0.5); margin-bottom: 6px; letter-spacing: 0.5px;">備品</div>
+            <div style="font-weight: 700; font-size: 16px; color: #222; margin-bottom: 10px;">${productName}</div>
+          </div>
+          <div>
+            <div style="font-size: 11px; color: rgba(0,0,0,0.5); margin-bottom: 8px; letter-spacing: 0.5px;">合併每月叫貨箱數</div>
+            <input type="number"
+              id="quota_${mainQuota.id}"
+              value="${totalBoxes}"
+              min="0"
+              max="100"
+              style="width: 100%; padding: 12px; border: 2px solid rgba(0,0,0,0.1); border-radius: 6px; font-size: 20px; font-weight: 700; text-align: center; background: rgba(255,255,255,0.4); color: #222; margin-bottom: 10px;">
+            <button class="btn" style="width: 100%; padding: 10px; background: rgba(0,0,0,0.08); color: #333; border: none; border-radius: 6px; font-weight: 600; cursor: pointer; font-size: 15px; transition: background 0.2s;" onmouseover="this.style.background='rgba(0,0,0,0.12)'" onmouseout="this.style.background='rgba(0,0,0,0.08)'" onclick="updatePropertyQuotas(${propertyId}, ${mainQuota.product_id}, ${mainQuota.id})">保存</button>
+          </div>
+        `;
+        gridDiv.appendChild(card);
+        colorIndex++;
+      });
+
+      container.appendChild(gridDiv);
+    }
+
+    async function updatePropertyQuotas(propertyId, productId, quotaId) {
+      const input = document.getElementById(`quota_${quotaId}`);
+      const newValue = parseInt(input.value);
+
+      try {
+        // 中正和福榮共用設定，都更新為同樣的值
+        const propertyIds = propertyId == 3 ? [3, 4] : [propertyId];
+
+        for (const pId of propertyIds) {
+          const quota = allQuotas.find(q => q.product_id == productId && q.property_id == pId);
+          if (quota) {
+            await fetch(`/api/monthly-quotas/${quota.id}`, {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ boxes_per_month: newValue })
+            });
+          }
+        }
+
+        showSuccess('settingsMessage', '✅ 設定已保存');
+        loadQuotas();
+      } catch (err) {
+        showError('settingsError', '保存失敗: ' + err.message);
       }
     }
 
