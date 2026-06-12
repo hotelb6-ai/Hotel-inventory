@@ -747,22 +747,19 @@
     }
 
     async function editProduct(id, name, size) {
-      const newName = prompt('編輯備品名稱:', name);
-      if (newName === null) return;
-
-      const newSize = prompt('編輯單箱規格（個數）:', size);
+      const newSize = prompt(`編輯 ${name} 的單箱規格（個數）:`, size);
       if (newSize === null) return;
 
       try {
         const res = await fetch(`/api/products/${id}`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ name: newName, unit_size: parseInt(newSize) })
+          body: JSON.stringify({ name: name, unit_size: parseInt(newSize) })
         });
 
         const data = await res.json();
         if (data.success) {
-          showSuccess('productsMessage', '✅ 備品已更新');
+          showSuccess('productsMessage', '✅ 規格已更新');
           loadProducts();
         } else {
           showError('productsError', '更新失敗');
