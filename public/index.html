@@ -730,7 +730,10 @@
         card.innerHTML = `
           <div class="card-header">
             <div class="card-title">📦 ${product.name}</div>
-            <button class="btn btn-danger" style="padding: 8px 12px; font-size: 12px;" onclick="deleteProduct(${product.id})">刪除</button>
+            <div class="card-actions">
+              <button class="btn" style="background: #3498db; color: white; padding: 8px 12px; font-size: 12px;" onclick="editProduct(${product.id}, '${product.name}', ${product.unit_size})">編輯</button>
+              <button class="btn btn-danger" style="padding: 8px 12px; font-size: 12px;" onclick="deleteProduct(${product.id})">刪除</button>
+            </div>
           </div>
           <div class="card-content">
             <div class="card-info">
@@ -741,6 +744,32 @@
         `;
         container.appendChild(card);
       });
+    }
+
+    async function editProduct(id, name, size) {
+      const newName = prompt('編輯備品名稱:', name);
+      if (newName === null) return;
+
+      const newSize = prompt('編輯單箱規格（個數）:', size);
+      if (newSize === null) return;
+
+      try {
+        const res = await fetch(`/api/products/${id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: newName, unit_size: parseInt(newSize) })
+        });
+
+        const data = await res.json();
+        if (data.success) {
+          showSuccess('productsMessage', '✅ 備品已更新');
+          loadProducts();
+        } else {
+          showError('productsError', '更新失敗');
+        }
+      } catch (err) {
+        showError('productsError', '更新失敗: ' + err.message);
+      }
     }
 
     async function addProduct() {
