@@ -614,8 +614,8 @@
           });
         }
         showSuccess('settingsMessage', '✅ 品項選擇已保存');
-        // 重新加載配額顯示
-        loadQuotasForProperty();
+        // 重新加載完整的產品信息和配額顯示
+        await loadPropertyProducts();
       } catch (err) {
         showError('settingsError', '保存失敗: ' + err.message);
       }
