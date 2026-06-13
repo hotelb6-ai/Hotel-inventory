@@ -1051,9 +1051,11 @@
       try {
         const res = await fetch(`/api/products/${id}`, { method: 'DELETE' });
         const data = await res.json();
-        if (data.success) {
+        if (res.ok && data.success) {
           showSuccess('productsMessage', '✅ 備品已刪除');
           loadProducts();
+        } else {
+          showError('productsError', '刪除失敗: ' + (data.error || '未知錯誤'));
         }
       } catch (err) {
         showError('productsError', '刪除失敗: ' + err.message);

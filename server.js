@@ -532,10 +532,25 @@ app.put('/api/products/:id', async (req, res) => {
 app.delete('/api/products/:id', async (req, res) => {
   const id = req.params.id;
   try {
-    await pool.query('DELETE FROM products WHERE id = $1', [id]);
+    const client = await pool.connect();
+    await client.query('BEGIN');
+
+    // 刪除所有相關的記錄
+    await client.query('DELETE FROM order_items WHERE product_id = $1', [id]);
+    await client.query('DELETE FROM property_products WHERE product_id = $1', [id]);
+    await client.query('DELETE FROM monthly_quotas WHERE product_id = $1', [id]);
+    await client.query('DELETE FROM inventory WHERE product_id = $1', [id]);
+
+    // 最後刪除產品
+    await client.query('DELETE FROM products WHERE id = $1', [id]);
+
+    await client.query('COMMIT');
+    client.release();
+
     res.json({ success: true, message: '刪除成功' });
   } catch (err) {
-    res.status(500).json({ error: '刪除失敗' });
+    console.error('刪除失敗:', err);
+    res.status(500).json({ error: '刪除失敗: ' + err.message });
   }
 });
 
