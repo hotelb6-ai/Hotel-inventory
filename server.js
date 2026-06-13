@@ -73,6 +73,13 @@ async function initDatabase() {
         property_id INTEGER NOT NULL REFERENCES properties(id),
         boxes_per_month INTEGER NOT NULL DEFAULT 5,
         UNIQUE(product_id, property_id)
+      )`,
+      `CREATE TABLE IF NOT EXISTS property_products (
+        id SERIAL PRIMARY KEY,
+        property_id INTEGER NOT NULL REFERENCES properties(id),
+        product_id INTEGER NOT NULL REFERENCES products(id),
+        enabled BOOLEAN DEFAULT true,
+        UNIQUE(property_id, product_id)
       )`
     ];
 
@@ -106,18 +113,29 @@ async function seedData(client) {
     ];
 
     const products = [
-      { name: '優活小捲衛生紙', size: 60 },
-      { name: '優活面紙', size: 60 },
-      { name: '連潔小垃圾袋', size: 1 },
-      { name: '連結大垃圾袋', size: 1 },
+      // 牙刷（2種）
+      { name: '銀色版-(白色)小美人32孔摩肩斯牙刷+5g', size: 500 },
+      { name: '軟膜環保桔梗牙刷+牙膏3g', size: 1000 },
+      // 拖鞋（3種）
+      { name: '環保拖鞋(BJ-32)', size: 500 },
+      { name: 'YL-49(白色)全包不織布紙拖鞋+止滑', size: 300 },
+      { name: 'YL70(白色)全包布紙拖鞋+止滑', size: 300 },
+      // 面紙（2種）
+      { name: 'APP優活太空包面紙 80抽', size: 96 },
+      { name: '芙蓉太空包面紙100抽', size: 64 },
+      // 捲筒衛生紙（1種）
+      { name: 'APP優活小捲衛生紙270節', size: 60 },
+      // 垃圾袋（3種）
+      { name: '台塑卷取垃圾袋(65*75/大)', size: 1 },
+      { name: '連潔塑膠袋(80*95/白)', size: 1 },
+      { name: '連潔塑膠袋(40*50/白)', size: 1 },
+      // 原有的其他產品
       { name: '綠茶包', size: 100 },
       { name: '烏龍茶包', size: 100 },
       { name: '洋甘菊茶包', size: 280 },
       { name: '咖啡包', size: 100 },
       { name: '奶茶包', size: 100 },
       { name: '條棒', size: 500 },
-      { name: '牙刷', size: 250 },
-      { name: '紙拖', size: 500 },
       { name: '沐浴乳', size: 1 },
       { name: '洗髮精', size: 1 },
       { name: '擦手紙', size: 8 },
@@ -160,12 +178,22 @@ async function seedData(client) {
       );
     }
 
-    // 初始化月度配額
-    for (let propId = 1; propId <= 8; propId++) {
-      for (let prodId = 1; prodId <= 16; prodId++) {
+    // 獲取所有產品和館別的數量
+    const prodResult = await client.query('SELECT COUNT(*) FROM products');
+    const propResult = await client.query('SELECT COUNT(*) FROM properties');
+    const numProducts = parseInt(prodResult.rows[0].count);
+    const numProperties = parseInt(propResult.rows[0].count);
+
+    // 初始化月度配額和產品啟用狀態
+    for (let propId = 1; propId <= numProperties; propId++) {
+      for (let prodId = 1; prodId <= numProducts; prodId++) {
         await client.query(
           'INSERT INTO monthly_quotas (product_id, property_id, boxes_per_month) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING',
           [prodId, propId, 5]
+        );
+        await client.query(
+          'INSERT INTO property_products (property_id, product_id, enabled) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING',
+          [propId, prodId, true]
         );
       }
     }
@@ -565,6 +593,38 @@ app.delete('/api/users/:id', async (req, res) => {
     res.json({ success: true, message: '刪除成功' });
   } catch (err) {
     res.status(500).json({ error: '刪除失敗' });
+  }
+});
+
+// 獲取館店的產品啟用狀態
+app.get('/api/property-products/:propertyId', async (req, res) => {
+  const propertyId = req.params.propertyId;
+  try {
+    const result = await pool.query(`
+      SELECT pp.id, pp.product_id, pp.enabled, p.name as product_name, p.unit_size
+      FROM property_products pp
+      JOIN products p ON pp.product_id = p.id
+      WHERE pp.property_id = $1
+      ORDER BY p.id
+    `, [propertyId]);
+    res.json(result.rows);
+  } catch (err) {
+    res.status(500).json({ error: '資料庫錯誤' });
+  }
+});
+
+// 更新館店的產品啟用狀態
+app.put('/api/property-products/:propertyId/:productId', async (req, res) => {
+  const { propertyId, productId } = req.params;
+  const { enabled } = req.body;
+  try {
+    await pool.query(
+      'UPDATE property_products SET enabled = $1 WHERE property_id = $2 AND product_id = $3',
+      [enabled, propertyId, productId]
+    );
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: '更新失敗' });
   }
 });
 

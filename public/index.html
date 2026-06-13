@@ -96,9 +96,16 @@
 
         <div style="margin-bottom: 20px;">
           <label for="propertySelect" style="font-weight: 600;">選擇館別：</label>
-          <select id="propertySelect" onchange="loadQuotasForProperty()" style="padding: 10px; margin-left: 10px; border-radius: 5px; border: 1px solid #ddd;">
+          <select id="propertySelect" onchange="loadPropertyProducts()" style="padding: 10px; margin-left: 10px; border-radius: 5px; border: 1px solid #ddd;">
             <option value="">-- 所有館別 --</option>
           </select>
+        </div>
+
+        <!-- 產品勾選區域 -->
+        <div id="productSelectContainer" style="display: none; margin-bottom: 25px; padding: 15px; background: #f9f9f9; border-radius: 8px; border-left: 4px solid #667eea;">
+          <h3 style="margin-bottom: 15px; color: #333;">選擇使用的品項</h3>
+          <div id="productCheckboxes" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px;"></div>
+          <button class="btn btn-primary" style="margin-top: 15px;" onclick="savePropertyProducts()">保存品項選擇</button>
         </div>
 
         <div id="quotasContainer"></div>
@@ -529,6 +536,77 @@
       }
     }
 
+    // 加載產品勾選框
+    let enabledProducts = {}; // 存儲每個館店的啟用產品
+
+    async function loadPropertyProducts() {
+      const propertyId = document.getElementById('propertySelect').value;
+      const container = document.getElementById('productSelectContainer');
+      const checkboxContainer = document.getElementById('productCheckboxes');
+
+      if (!propertyId) {
+        container.style.display = 'none';
+        loadQuotasForProperty();
+        return;
+      }
+
+      container.style.display = 'block';
+      checkboxContainer.innerHTML = '';
+
+      try {
+        // 獲取該館店的產品啟用狀態
+        const res = await fetch(`/api/property-products/${propertyId}`);
+        const propertyProducts = await res.json();
+
+        // 創建啟用狀態映射
+        enabledProducts[propertyId] = {};
+        propertyProducts.forEach(pp => {
+          enabledProducts[propertyId][pp.product_id] = pp.enabled;
+        });
+
+        // 顯示所有產品的勾選框
+        propertyProducts.forEach(pp => {
+          const label = document.createElement('label');
+          label.style.cssText = 'display: flex; align-items: center; padding: 10px; background: white; border-radius: 5px; cursor: pointer; user-select: none;';
+          label.innerHTML = `
+            <input type="checkbox" data-product-id="${pp.product_id}" ${pp.enabled ? 'checked' : ''}
+              style="margin-right: 10px; cursor: pointer; width: 16px; height: 16px;">
+            <span style="font-size: 14px; color: #333;">${pp.product_name}</span>
+          `;
+          checkboxContainer.appendChild(label);
+        });
+
+        // 加載該館別的配額
+        loadQuotasForProperty();
+      } catch (err) {
+        console.error('獲取產品狀態失敗:', err);
+      }
+    }
+
+    // 保存產品選擇
+    async function savePropertyProducts() {
+      const propertyId = document.getElementById('propertySelect').value;
+      if (!propertyId) return;
+
+      try {
+        const checkboxes = document.querySelectorAll('#productCheckboxes input[type="checkbox"]');
+        for (const checkbox of checkboxes) {
+          const productId = checkbox.getAttribute('data-product-id');
+          const enabled = checkbox.checked;
+          await fetch(`/api/property-products/${propertyId}/${productId}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ enabled })
+          });
+        }
+        showSuccess('settingsMessage', '✅ 品項選擇已保存');
+        // 重新加載配額顯示
+        loadQuotasForProperty();
+      } catch (err) {
+        showError('settingsError', '保存失敗: ' + err.message);
+      }
+    }
+
     function loadQuotasForProperty() {
       const propertyId = document.getElementById('propertySelect').value;
       if (propertyId) {
@@ -561,9 +639,21 @@
       currentPropertyId = propertyId;
       currentPropertyQuotas = quotas;
 
+      // 過濾出啟用的產品
+      const enabledProds = enabledProducts[propertyId] || {};
+      const filteredQuotas = quotas.filter(q => {
+        // 如果沒有設定啟用狀態，默認啟用
+        return enabledProds[q.product_id] !== false;
+      });
+
+      if (filteredQuotas.length === 0) {
+        container.innerHTML = '<p style="color: #999;">沒有啟用的品項，請在上方勾選要使用的品項</p>';
+        return;
+      }
+
       // 按備品名稱分組
       const groupedByProduct = {};
-      quotas.forEach(quota => {
+      filteredQuotas.forEach(quota => {
         if (!groupedByProduct[quota.product_name]) {
           groupedByProduct[quota.product_name] = [];
         }
