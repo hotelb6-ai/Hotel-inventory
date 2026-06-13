@@ -101,6 +101,17 @@ async function initDatabase() {
 // 種子數據
 async function seedData(client) {
   try {
+    // 檢查環境變數，如果設定了 RESET_DB=true 則清空舊數據
+    const shouldReset = process.env.RESET_DB === 'true';
+    if (shouldReset) {
+      console.log('🔄 清空舊數據中...');
+      await client.query('DELETE FROM property_products');
+      await client.query('DELETE FROM order_items');
+      await client.query('DELETE FROM monthly_quotas');
+      await client.query('DELETE FROM inventory');
+      await client.query('DELETE FROM products');
+    }
+
     const properties = [
       { name: '星美', group: 1 },
       { name: '俞美', group: 2 },
@@ -162,12 +173,28 @@ async function seedData(client) {
       );
     }
 
-    // 插入備品
+    // 插入備品（替換舊產品）
     for (const prod of products) {
       await client.query(
-        'INSERT INTO products (name, unit_size, threshold_percent) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING',
+        `INSERT INTO products (name, unit_size, threshold_percent) VALUES ($1, $2, $3)
+         ON CONFLICT (name) DO UPDATE SET unit_size = $2`,
         [prod.name, prod.size, 50]
       );
+    }
+
+    // 刪除不在新列表中的舊產品
+    const newProductNames = products.map(p => p.name);
+    const oldProds = await client.query('SELECT id, name FROM products');
+    for (const oldProd of oldProds.rows) {
+      if (!newProductNames.includes(oldProd.name)) {
+        console.log(`🗑️ 刪除舊產品: ${oldProd.name}`);
+        // 刪除相關記錄後才能刪除產品
+        await client.query('DELETE FROM order_items WHERE product_id = $1', [oldProd.id]);
+        await client.query('DELETE FROM property_products WHERE product_id = $1', [oldProd.id]);
+        await client.query('DELETE FROM monthly_quotas WHERE product_id = $1', [oldProd.id]);
+        await client.query('DELETE FROM inventory WHERE product_id = $1', [oldProd.id]);
+        await client.query('DELETE FROM products WHERE id = $1', [oldProd.id]);
+      }
     }
 
     // 插入用戶
