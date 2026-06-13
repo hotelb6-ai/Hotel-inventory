@@ -205,15 +205,17 @@ async function seedData(client) {
       );
     }
 
-    // 獲取所有產品和館別的數量
-    const prodResult = await client.query('SELECT COUNT(*) FROM products');
-    const propResult = await client.query('SELECT COUNT(*) FROM properties');
-    const numProducts = parseInt(prodResult.rows[0].count);
-    const numProperties = parseInt(propResult.rows[0].count);
+    // 獲取所有產品和館別
+    const prodsResult = await client.query('SELECT id FROM products ORDER BY id');
+    const propsResult = await client.query('SELECT id FROM properties ORDER BY id');
+    const productIds = prodsResult.rows.map(r => r.id);
+    const propertyIds = propsResult.rows.map(r => r.id);
+
+    console.log(`📦 初始化 ${productIds.length} 個產品 × ${propertyIds.length} 個館別...`);
 
     // 初始化月度配額和產品啟用狀態
-    for (let propId = 1; propId <= numProperties; propId++) {
-      for (let prodId = 1; prodId <= numProducts; prodId++) {
+    for (const propId of propertyIds) {
+      for (const prodId of productIds) {
         await client.query(
           'INSERT INTO monthly_quotas (product_id, property_id, boxes_per_month) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING',
           [prodId, propId, 5]

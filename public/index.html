@@ -551,12 +551,22 @@
       }
 
       container.style.display = 'block';
-      checkboxContainer.innerHTML = '';
+      checkboxContainer.innerHTML = '⏳ 加載中...';
 
       try {
         // 獲取該館店的產品啟用狀態
         const res = await fetch(`/api/property-products/${propertyId}`);
+        if (!res.ok) {
+          throw new Error(`API 錯誤: ${res.status}`);
+        }
         const propertyProducts = await res.json();
+
+        console.log(`📦 取得 ${propertyProducts.length} 個產品`, propertyProducts);
+
+        if (propertyProducts.length === 0) {
+          checkboxContainer.innerHTML = '<p style="color: #999;">暫無產品數據</p>';
+          return;
+        }
 
         // 創建啟用狀態映射
         enabledProducts[propertyId] = {};
@@ -564,14 +574,17 @@
           enabledProducts[propertyId][pp.product_id] = pp.enabled;
         });
 
+        // 清空容器
+        checkboxContainer.innerHTML = '';
+
         // 顯示所有產品的勾選框
         propertyProducts.forEach(pp => {
           const label = document.createElement('label');
-          label.style.cssText = 'display: flex; align-items: center; padding: 10px; background: white; border-radius: 5px; cursor: pointer; user-select: none;';
+          label.style.cssText = 'display: flex; align-items: center; padding: 10px; background: white; border-radius: 5px; cursor: pointer; user-select: none; margin-bottom: 8px;';
           label.innerHTML = `
             <input type="checkbox" data-product-id="${pp.product_id}" ${pp.enabled ? 'checked' : ''}
-              style="margin-right: 10px; cursor: pointer; width: 16px; height: 16px;">
-            <span style="font-size: 14px; color: #333;">${pp.product_name}</span>
+              style="margin-right: 10px; cursor: pointer; width: 18px; height: 18px; flex-shrink: 0;">
+            <span style="font-size: 14px; color: #333; word-break: break-word;">${pp.product_name}</span>
           `;
           checkboxContainer.appendChild(label);
         });
@@ -580,6 +593,7 @@
         loadQuotasForProperty();
       } catch (err) {
         console.error('獲取產品狀態失敗:', err);
+        checkboxContainer.innerHTML = `<p style="color: red;">錯誤: ${err.message}</p>`;
       }
     }
 
