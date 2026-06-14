@@ -56,6 +56,10 @@
 
       <!-- 庫存填報 -->
       <div id="inventoryTab" class="tab-content active">
+        <div id="inventoryPropertyBanner" style="display: none; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 18px 24px; border-radius: 10px; margin-bottom: 18px; box-shadow: 0 4px 12px rgba(102,126,234,0.3);">
+          <div style="font-size: 13px; opacity: 0.85; letter-spacing: 1px; margin-bottom: 4px;">目前填報館別</div>
+          <div style="font-size: 26px; font-weight: 800; letter-spacing: 1px;">📍 <span id="inventoryPropertyName"></span></div>
+        </div>
         <h2>月底庫存填報</h2>
         <p style="color: #666; margin-bottom: 20px;">請於月底 30 日前填報各項備品的剩餘庫存量</p>
 
@@ -207,7 +211,6 @@
     async function showDashboard() {
       document.getElementById('loginPage').style.display = 'none';
       document.getElementById('dashboardPage').style.display = 'block';
-      document.getElementById('userDisplay').textContent = `👤 ${currentUser.username} (${currentUser.role === 'admin' ? '管理員' : '員工'})`;
 
       // 重置所有 tab 狀態，避免上一個使用者的分頁殘留
       document.querySelectorAll('.tab-content').forEach(t => {
@@ -216,8 +219,19 @@
       });
       document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
 
+      // 先載入產品與館別資料
       await loadProducts();
       await loadProperties();
+
+      // 右上角標籤：管理員顯示「管理員」，員工顯示「館別 員工」（避免多館員工搞錯）
+      let roleLabel;
+      if (currentUser.role === 'admin') {
+        roleLabel = '管理員';
+      } else {
+        const prop = properties.find(p => p.id === currentUser.property_id);
+        roleLabel = prop ? `${prop.name} 員工` : '員工';
+      }
+      document.getElementById('userDisplay').textContent = `👤 ${currentUser.username} (${roleLabel})`;
 
       const inventoryBtn = document.querySelector('.tab-btn[onclick*="\'inventory\'"]');
 
@@ -289,35 +303,70 @@
       }
     }
 
-    // ===== 加載庫存表單 =====
-    function loadInventoryForm() {
+    // ===== 加載庫存表單（只顯示該館啟用的品項 + 顯示館名） =====
+    async function loadInventoryForm() {
       const form = document.getElementById('inventoryForm');
+      const banner = document.getElementById('inventoryPropertyBanner');
+      const propertyNameEl = document.getElementById('inventoryPropertyName');
+      const propertyId = currentUser.property_id;
+
+      const property = properties.find(p => p.id === propertyId);
+      const propertyName = property ? property.name : '';
+
+      if (propertyId && propertyName) {
+        propertyNameEl.textContent = propertyName;
+        banner.style.display = 'block';
+      } else {
+        banner.style.display = 'none';
+      }
+
       form.innerHTML = '';
 
-      products.forEach(product => {
-        const threshold = Math.ceil(product.unit_size * 0.5);
-        const item = document.createElement('div');
-        item.className = 'product-item';
-        item.innerHTML = `
-          <div class="product-name">
-            ${product.name}
-            <span style="font-size: 12px; color: #999;">(${product.unit_size}個/箱)</span>
-          </div>
-          <div class="product-spec">
-            臨界值: ${threshold}個 (50%)
-          </div>
-          <div class="product-input">
-            <input type="number"
-              id="product_${product.id}"
-              placeholder="輸入剩餘數量"
-              min="0"
-              onchange="checkThreshold(${product.id}, ${threshold})"
-              style="flex: 1;">
-            <span id="warning_${product.id}" class="threshold-warning"></span>
-          </div>
-        `;
-        form.appendChild(item);
-      });
+      if (!propertyId) {
+        form.innerHTML = '<p style="color: #c00; padding: 20px; background: #fff5f5; border-radius: 8px;">⚠️ 此帳號尚未指派館別，請聯絡管理員</p>';
+        return;
+      }
+
+      try {
+        const res = await fetch(`/api/property-products/${propertyId}`);
+        const propertyProducts = await res.json();
+        const enabledIds = new Set(propertyProducts.filter(pp => pp.enabled).map(pp => pp.product_id));
+
+        const enabledProducts = products.filter(p => enabledIds.has(p.id));
+
+        if (enabledProducts.length === 0) {
+          form.innerHTML = '<p style="color: #999; padding: 20px; background: #f9f9f9; border-radius: 8px;">管理員尚未為此館啟用任何叫貨品項，請聯絡管理員設定</p>';
+          return;
+        }
+
+        enabledProducts.forEach(product => {
+          const threshold = Math.ceil(product.unit_size * 0.5);
+          const item = document.createElement('div');
+          item.className = 'product-item';
+          item.innerHTML = `
+            <div class="product-name">
+              ${product.name}
+              <span style="font-size: 12px; color: #999;">(${product.unit_size}個/箱)</span>
+            </div>
+            <div class="product-spec">
+              臨界值: ${threshold}個 (50%)
+            </div>
+            <div class="product-input">
+              <input type="number"
+                id="product_${product.id}"
+                placeholder="輸入剩餘數量"
+                min="0"
+                onchange="checkThreshold(${product.id}, ${threshold})"
+                style="flex: 1;">
+              <span id="warning_${product.id}" class="threshold-warning"></span>
+            </div>
+          `;
+          form.appendChild(item);
+        });
+      } catch (err) {
+        console.error('載入品項失敗:', err);
+        form.innerHTML = `<p style="color: red;">載入失敗：${err.message}</p>`;
+      }
     }
 
     // ===== 檢查臨界值 =====
