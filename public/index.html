@@ -141,14 +141,19 @@
 
         <div style="margin-bottom: 20px; padding: 15px; background: #f5f5f5; border-radius: 5px;">
           <h3 style="margin-bottom: 15px;">新增用戶</h3>
-          <div style="display: grid; grid-template-columns: 1fr 1fr 1fr auto; gap: 10px;">
+          <div style="display: grid; grid-template-columns: 1fr 1fr 1fr 1fr auto; gap: 10px;">
             <input type="text" id="newUsername" placeholder="帳號" style="padding: 10px; border: 1px solid #ddd; border-radius: 4px;">
             <input type="password" id="newPassword" placeholder="密碼" style="padding: 10px; border: 1px solid #ddd; border-radius: 4px;">
+            <select id="newRole" onchange="onRoleChange()" style="padding: 10px; border: 1px solid #ddd; border-radius: 4px;">
+              <option value="staff">📋 員工</option>
+              <option value="admin">🔑 管理員</option>
+            </select>
             <select id="newPropertyId" style="padding: 10px; border: 1px solid #ddd; border-radius: 4px;">
               <option value="">-- 選擇館別 --</option>
             </select>
             <button class="btn btn-primary" onclick="addUser()" style="padding: 10px 20px;">新增</button>
           </div>
+          <p style="margin-top: 8px; font-size: 12px; color: #888;">員工必須選擇館別且每館僅限一位；管理員不需選館別。</p>
         </div>
 
         <div id="usersContainer"></div>
@@ -204,25 +209,48 @@
       document.getElementById('dashboardPage').style.display = 'block';
       document.getElementById('userDisplay').textContent = `👤 ${currentUser.username} (${currentUser.role === 'admin' ? '管理員' : '員工'})`;
 
+      // 重置所有 tab 狀態，避免上一個使用者的分頁殘留
+      document.querySelectorAll('.tab-content').forEach(t => {
+        t.classList.remove('active');
+        t.style.display = '';
+      });
+      document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+
       await loadProducts();
       await loadProperties();
 
-      // 只有管理員才能看到設定
+      const inventoryBtn = document.querySelector('.tab-btn[onclick*="\'inventory\'"]');
+
       if (currentUser.role === 'admin') {
+        // 管理員：顯示管理 tab、隱藏庫存填報、預設停在叫貨單
         document.getElementById('settingsTabBtn').style.display = 'block';
         document.getElementById('productsTabBtn').style.display = 'block';
         document.getElementById('usersTabBtn').style.display = 'block';
+        if (inventoryBtn) inventoryBtn.style.display = 'none';
         document.getElementById('inventoryTab').style.display = 'none';
+        setActiveTab('orders');
         loadOrders();
         loadQuotas();
-        loadProducts();
         loadUsers();
       } else {
+        // 員工：隱藏管理 tab、顯示庫存填報、預設停在庫存填報
         document.getElementById('settingsTabBtn').style.display = 'none';
         document.getElementById('productsTabBtn').style.display = 'none';
         document.getElementById('usersTabBtn').style.display = 'none';
+        if (inventoryBtn) inventoryBtn.style.display = '';
+        setActiveTab('inventory');
         loadInventoryForm();
       }
+    }
+
+    // 程式碼呼叫用的 tab 切換（不依賴 event）
+    function setActiveTab(tabName) {
+      document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+      document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+      const tab = document.getElementById(tabName + 'Tab');
+      if (tab) tab.classList.add('active');
+      const btn = document.querySelector(`.tab-btn[onclick*="'${tabName}'"]`);
+      if (btn) btn.classList.add('active');
     }
 
     // ===== 登出 =====
@@ -236,11 +264,16 @@
       }
     }
 
-    // ===== 獲取備品列表 =====
+    // ===== 獲取備品列表（同時供庫存填報、品項管理使用） =====
     async function loadProducts() {
       try {
         const res = await fetch('/api/products');
-        products = await res.json();
+        const data = await res.json();
+        products = data;
+        allProductsList = data;
+        if (document.getElementById('productsContainer')) {
+          displayProducts();
+        }
       } catch (err) {
         console.error('獲取備品失敗:', err);
       }
@@ -689,17 +722,16 @@
         const card = document.createElement('div');
         const bgColor = colors[colorIndex % colors.length];
 
-        // 合併中正和福榮的配額
-        let totalBoxes = 0;
+        // 中正和福榮共用配額：顯示單一館的值（儲存時會同步到兩館）
         const propertyNames = [];
         quotaList.forEach(q => {
-          totalBoxes += q.boxes_per_month;
           if (!propertyNames.includes(q.property_name)) {
             propertyNames.push(q.property_name);
           }
         });
 
         const mainQuota = quotaList[0];
+        const displayBoxes = mainQuota.boxes_per_month;
 
         card.style.cssText = `
           background: ${bgColor};
@@ -723,12 +755,12 @@
             <div style="font-weight: 700; font-size: 16px; color: #222; margin-bottom: 10px;">${productName}</div>
           </div>
           <div>
-            <div style="font-size: 11px; color: rgba(0,0,0,0.5); margin-bottom: 8px; letter-spacing: 0.5px;">合併每月叫貨箱數</div>
+            <div style="font-size: 11px; color: rgba(0,0,0,0.5); margin-bottom: 8px; letter-spacing: 0.5px;">每月叫貨箱數</div>
             <input type="number"
               id="quota_${mainQuota.id}"
               data-quota-id="${mainQuota.id}"
               data-property-id="${propertyId}"
-              value="${totalBoxes}"
+              value="${displayBoxes}"
               min="0"
               max="100"
               style="width: 100%; padding: 12px; border: 2px solid rgba(0,0,0,0.1); border-radius: 6px; font-size: 20px; font-weight: 700; text-align: center; background: rgba(255,255,255,0.4); color: #222;">
@@ -967,16 +999,6 @@
     // ===== 品項管理 =====
     let allProductsList = [];
 
-    async function loadProducts() {
-      try {
-        const res = await fetch('/api/products');
-        allProductsList = await res.json();
-        displayProducts();
-      } catch (err) {
-        console.error('獲取備品失敗:', err);
-      }
-    }
-
     function displayProducts() {
       const container = document.getElementById('productsContainer');
       container.innerHTML = '';
@@ -1084,19 +1106,42 @@
         const res = await fetch('/api/users');
         allUsersList = await res.json();
 
-        // 填充館別下拉選單
-        const select = document.getElementById('newPropertyId');
-        select.innerHTML = '<option value="">-- 選擇館別 --</option>';
-        properties.forEach(prop => {
-          const option = document.createElement('option');
-          option.value = prop.id;
-          option.textContent = prop.name;
-          select.appendChild(option);
-        });
-
+        refreshPropertyOptions();
         displayUsers();
       } catch (err) {
         console.error('獲取用戶失敗:', err);
+      }
+    }
+
+    // 重新整理館別下拉選單：隱藏福榮（與中正合併）、隱藏已被指派的館別
+    function refreshPropertyOptions() {
+      const select = document.getElementById('newPropertyId');
+      const assignedPropertyIds = new Set(
+        allUsersList.filter(u => u.role === 'staff' && u.property_id != null).map(u => u.property_id)
+      );
+
+      select.innerHTML = '<option value="">-- 選擇館別 --</option>';
+      properties.forEach(prop => {
+        if (prop.name === '福榮') return; // 福榮與中正合併，登入由中正帳號代表
+        const option = document.createElement('option');
+        option.value = prop.id;
+        option.textContent = assignedPropertyIds.has(prop.id) ? `${prop.name}（已有員工）` : prop.name;
+        if (assignedPropertyIds.has(prop.id)) option.disabled = true;
+        select.appendChild(option);
+      });
+    }
+
+    // 角色切換：管理員不需館別，員工強制選館別
+    function onRoleChange() {
+      const role = document.getElementById('newRole').value;
+      const propSelect = document.getElementById('newPropertyId');
+      if (role === 'admin') {
+        propSelect.value = '';
+        propSelect.disabled = true;
+        propSelect.style.background = '#eee';
+      } else {
+        propSelect.disabled = false;
+        propSelect.style.background = '';
       }
     }
 
@@ -1136,12 +1181,27 @@
     }
 
     async function addUser() {
-      const username = document.getElementById('newUsername').value;
+      const username = document.getElementById('newUsername').value.trim();
       const password = document.getElementById('newPassword').value;
-      const propertyId = document.getElementById('newPropertyId').value;
+      const role = document.getElementById('newRole').value;
+      const propertyIdRaw = document.getElementById('newPropertyId').value;
 
       if (!username || !password) {
         showError('usersError', '請填寫帳號和密碼');
+        return;
+      }
+
+      // 員工必須選館別，避免被誤建為管理員
+      if (role === 'staff' && !propertyIdRaw) {
+        showError('usersError', '員工帳號必須選擇館別');
+        return;
+      }
+
+      const property_id = role === 'staff' ? parseInt(propertyIdRaw) : null;
+
+      // 前端先擋一次：同一館不可有兩位員工
+      if (role === 'staff' && allUsersList.some(u => u.role === 'staff' && u.property_id === property_id)) {
+        showError('usersError', '此館別已有員工帳號');
         return;
       }
 
@@ -1149,21 +1209,20 @@
         const res = await fetch('/api/users', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            username,
-            password,
-            property_id: propertyId ? parseInt(propertyId) : null,
-            role: propertyId ? 'staff' : 'admin'
-          })
+          body: JSON.stringify({ username, password, property_id, role })
         });
 
         const data = await res.json();
-        if (data.success) {
+        if (res.ok && data.success) {
           showSuccess('usersMessage', '✅ 用戶已新增');
           document.getElementById('newUsername').value = '';
           document.getElementById('newPassword').value = '';
+          document.getElementById('newRole').value = 'staff';
           document.getElementById('newPropertyId').value = '';
+          onRoleChange();
           loadUsers();
+        } else {
+          showError('usersError', data.error || '新增失敗');
         }
       } catch (err) {
         showError('usersError', '新增失敗: ' + err.message);
@@ -1185,27 +1244,75 @@
       }
     }
 
-    function editUser(id) {
+    async function editUser(id) {
       const user = allUsersList.find(u => u.id === id);
-      const newPassword = prompt(`編輯用戶: ${user.username}\n\n輸入新密碼（留白則不改）:`, user.password);
+      if (!user) return;
 
+      // 1. 改密碼（留白則不改）
+      const newPassword = prompt(`編輯用戶：${user.username}\n\n輸入新密碼（留白則不改）：`, '');
       if (newPassword === null) return;
 
-      fetch(`/api/users/${id}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          username: user.username,
-          password: newPassword || user.password,
-          property_id: user.property_id,
-          role: user.role
-        })
-      }).then(res => res.json()).then(data => {
-        if (data.success) {
+      // 2. 改角色
+      const roleInput = prompt(`角色設定：\n  輸入 1 = 員工\n  輸入 2 = 管理員\n（留白則不改，目前為${user.role === 'admin' ? '管理員' : '員工'}）`, '');
+      if (roleInput === null) return;
+
+      let newRole = user.role;
+      if (roleInput === '1') newRole = 'staff';
+      else if (roleInput === '2') newRole = 'admin';
+      else if (roleInput !== '') {
+        showError('usersError', '角色輸入無效');
+        return;
+      }
+
+      // 3. 改館別（員工才需要）
+      let newPropertyId = user.property_id;
+      if (newRole === 'staff') {
+        const propList = properties
+          .filter(p => p.name !== '福榮')
+          .map(p => `  ${p.id} = ${p.name}`).join('\n');
+        const propInput = prompt(`館別設定：\n${propList}\n（留白則不改，目前為${user.property_name || '未設定'}）`, '');
+        if (propInput === null) return;
+        if (propInput !== '') {
+          const parsed = parseInt(propInput);
+          if (!properties.some(p => p.id === parsed)) {
+            showError('usersError', '館別代號無效');
+            return;
+          }
+          if (allUsersList.some(u => u.id !== id && u.role === 'staff' && u.property_id === parsed)) {
+            showError('usersError', '此館別已有其他員工');
+            return;
+          }
+          newPropertyId = parsed;
+        }
+        if (newPropertyId == null) {
+          showError('usersError', '員工帳號必須設定館別');
+          return;
+        }
+      } else {
+        newPropertyId = null;
+      }
+
+      try {
+        const res = await fetch(`/api/users/${id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            username: user.username,
+            password: newPassword || user.password,
+            property_id: newPropertyId,
+            role: newRole
+          })
+        });
+        const data = await res.json();
+        if (res.ok && data.success) {
           showSuccess('usersMessage', '✅ 用戶已更新');
           loadUsers();
+        } else {
+          showError('usersError', data.error || '更新失敗');
         }
-      });
+      } catch (err) {
+        showError('usersError', '更新失敗: ' + err.message);
+      }
     }
 
     // ===== 修改 switchTab 函數支持設定 =====

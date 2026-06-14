@@ -600,16 +600,38 @@ app.get('/api/users', async (req, res) => {
   }
 });
 
+// 驗證用戶輸入：角色合法、員工必填館別且不重複
+async function validateUserPayload({ role, property_id, excludeId }) {
+  if (role !== 'admin' && role !== 'staff') {
+    return '角色必須為 admin 或 staff';
+  }
+  if (role === 'staff') {
+    if (property_id == null) return '員工帳號必須設定館別';
+    const dup = await pool.query(
+      'SELECT id FROM users WHERE role = $1 AND property_id = $2 AND id <> $3',
+      ['staff', property_id, excludeId || 0]
+    );
+    if (dup.rows.length > 0) return '此館別已有員工帳號';
+  }
+  return null;
+}
+
 // 新增用戶
 app.post('/api/users', async (req, res) => {
   const { username, password, property_id, role } = req.body;
+  const normalizedPropertyId = role === 'staff' ? property_id : null;
+
+  const errMsg = await validateUserPayload({ role, property_id: normalizedPropertyId });
+  if (errMsg) return res.status(400).json({ error: errMsg });
+
   try {
     const result = await pool.query(
       'INSERT INTO users (username, password, property_id, role) VALUES ($1, $2, $3, $4) RETURNING id, username, property_id, role',
-      [username, password, property_id, role]
+      [username, password, normalizedPropertyId, role]
     );
     res.json({ success: true, user: result.rows[0] });
   } catch (err) {
+    if (err.code === '23505') return res.status(400).json({ error: '帳號已存在' });
     res.status(500).json({ error: '新增用戶失敗' });
   }
 });
@@ -617,11 +639,16 @@ app.post('/api/users', async (req, res) => {
 // 更新用戶
 app.put('/api/users/:id', async (req, res) => {
   const { username, password, property_id, role } = req.body;
-  const id = req.params.id;
+  const id = parseInt(req.params.id);
+  const normalizedPropertyId = role === 'staff' ? property_id : null;
+
+  const errMsg = await validateUserPayload({ role, property_id: normalizedPropertyId, excludeId: id });
+  if (errMsg) return res.status(400).json({ error: errMsg });
+
   try {
     await pool.query(
       'UPDATE users SET username = $1, password = $2, property_id = $3, role = $4 WHERE id = $5',
-      [username, password, property_id, role, id]
+      [username, password, normalizedPropertyId, role, id]
     );
     res.json({ success: true, message: '更新成功' });
   } catch (err) {
