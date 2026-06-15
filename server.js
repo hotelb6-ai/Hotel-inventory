@@ -162,16 +162,10 @@ async function seedData(client) {
       { name: '漂白水', size: 1 }
     ];
 
+    // 上線後僅保留 admin 作為「找不到管理員時的緊急救援」種子。
+    // 員工帳號完全由管理員從 UI 自行建立，刪除後不會被自動重建。
     const users = [
-      { username: 'admin', password: 'admin123', property_id: null, role: 'admin' },
-      { username: '星美', password: 'pass123', property_id: 1, role: 'staff' },
-      { username: '俞美', password: 'pass123', property_id: 2, role: 'staff' },
-      { username: '中正', password: 'pass123', property_id: 3, role: 'staff' },
-      { username: '福榮', password: 'pass123', property_id: 4, role: 'staff' },
-      { username: '大西', password: 'pass123', property_id: 5, role: 'staff' },
-      { username: '小西', password: 'pass123', property_id: 6, role: 'staff' },
-      { username: '福壽', password: 'pass123', property_id: 7, role: 'staff' },
-      { username: '大東', password: 'pass123', property_id: 8, role: 'staff' }
+      { username: 'admin', password: 'admin123', property_id: null, role: 'admin' }
     ];
 
     // 插入館別
