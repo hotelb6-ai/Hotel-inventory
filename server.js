@@ -206,11 +206,13 @@ async function seedData(client) {
       }
     }
 
-    // 插入用戶
+    // 插入用戶（僅作為「找不到管理員時的緊急救援」，存在則不覆蓋）
+    // 上線後，密碼應由管理員從 UI 修改；已存在帳號的密碼不會被這段邏輯重設。
     for (const user of users) {
+      const propertyIds = user.property_id ? [user.property_id] : [];
       await client.query(
-        'INSERT INTO users (username, password, property_id, role) VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING',
-        [user.username, user.password, user.property_id, user.role]
+        'INSERT INTO users (username, password, property_id, property_ids, role) VALUES ($1, $2, $3, $4, $5) ON CONFLICT DO NOTHING',
+        [user.username, user.password, user.property_id, propertyIds, user.role]
       );
     }
 
