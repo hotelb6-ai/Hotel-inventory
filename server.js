@@ -87,6 +87,15 @@ async function initDatabase() {
       await client.query(table);
     }
 
+    // Schema 遷移：users 表新增 property_ids 陣列，把舊的 property_id 同步進去
+    await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS property_ids INTEGER[] DEFAULT '{}'`);
+    await client.query(`
+      UPDATE users
+      SET property_ids = ARRAY[property_id]
+      WHERE property_id IS NOT NULL
+        AND (property_ids IS NULL OR array_length(property_ids, 1) IS NULL)
+    `);
+
     console.log('✅ 資料庫表格建立完成');
 
     // 種子數據
@@ -240,7 +249,8 @@ app.post('/api/login', async (req, res) => {
   const { username, password } = req.body;
   try {
     const result = await pool.query(
-      'SELECT id, username, role, property_id FROM users WHERE username = $1 AND password = $2',
+      `SELECT id, username, role, property_id, COALESCE(property_ids, '{}') AS property_ids
+       FROM users WHERE username = $1 AND password = $2`,
       [username, password]
     );
 
@@ -585,73 +595,99 @@ app.delete('/api/products/:id', async (req, res) => {
 
 // ===== 用戶管理 API =====
 
-// 獲取所有用戶
+// 獲取所有用戶（含多館別陣列）
 app.get('/api/users', async (req, res) => {
   try {
     const result = await pool.query(`
-      SELECT u.id, u.username, u.property_id, u.role, pr.name as property_name
+      SELECT
+        u.id, u.username, u.role, u.property_id,
+        pr.name AS property_name,
+        COALESCE(u.property_ids, '{}') AS property_ids,
+        (
+          SELECT COALESCE(array_agg(p.name ORDER BY p.id), '{}')
+          FROM properties p
+          WHERE p.id = ANY(COALESCE(u.property_ids, '{}'))
+        ) AS property_names
       FROM users u
       LEFT JOIN properties pr ON u.property_id = pr.id
       ORDER BY u.id
     `);
     res.json(result.rows);
   } catch (err) {
+    console.error('GET /api/users 錯誤:', err);
     res.status(500).json({ error: '資料庫錯誤' });
   }
 });
 
-// 驗證用戶輸入：角色合法、員工必填館別且不重複
-async function validateUserPayload({ role, property_id, excludeId }) {
+// 驗證用戶輸入：角色合法、員工必須至少一個館別
+function validateUserPayload({ role, property_ids }) {
   if (role !== 'admin' && role !== 'staff') {
     return '角色必須為 admin 或 staff';
   }
   if (role === 'staff') {
-    if (property_id == null) return '員工帳號必須設定館別';
-    const dup = await pool.query(
-      'SELECT id FROM users WHERE role = $1 AND property_id = $2 AND id <> $3',
-      ['staff', property_id, excludeId || 0]
-    );
-    if (dup.rows.length > 0) return '此館別已有員工帳號';
+    if (!Array.isArray(property_ids) || property_ids.length === 0) {
+      return '員工必須至少選擇一個館別';
+    }
   }
   return null;
 }
 
+// 將前端可能傳入的舊欄位 property_id 轉成陣列；管理員強制清空
+function normalizePropertyIds(role, body) {
+  if (role !== 'staff') return [];
+  if (Array.isArray(body.property_ids)) {
+    return body.property_ids.map(Number).filter(n => !isNaN(n));
+  }
+  if (body.property_id != null) return [Number(body.property_id)];
+  return [];
+}
+
 // 新增用戶
 app.post('/api/users', async (req, res) => {
-  const { username, password, property_id, role } = req.body;
-  const normalizedPropertyId = role === 'staff' ? property_id : null;
+  const { username, password, role } = req.body;
+  const property_ids = normalizePropertyIds(role, req.body);
 
-  const errMsg = await validateUserPayload({ role, property_id: normalizedPropertyId });
+  const errMsg = validateUserPayload({ role, property_ids });
   if (errMsg) return res.status(400).json({ error: errMsg });
+
+  const primaryPropId = property_ids[0] || null;
 
   try {
     const result = await pool.query(
-      'INSERT INTO users (username, password, property_id, role) VALUES ($1, $2, $3, $4) RETURNING id, username, property_id, role',
-      [username, password, normalizedPropertyId, role]
+      `INSERT INTO users (username, password, property_id, property_ids, role)
+       VALUES ($1, $2, $3, $4, $5)
+       RETURNING id, username, property_id, property_ids, role`,
+      [username, password, primaryPropId, property_ids, role]
     );
     res.json({ success: true, user: result.rows[0] });
   } catch (err) {
     if (err.code === '23505') return res.status(400).json({ error: '帳號已存在' });
+    console.error('POST /api/users 錯誤:', err);
     res.status(500).json({ error: '新增用戶失敗' });
   }
 });
 
 // 更新用戶
 app.put('/api/users/:id', async (req, res) => {
-  const { username, password, property_id, role } = req.body;
+  const { username, password, role } = req.body;
   const id = parseInt(req.params.id);
-  const normalizedPropertyId = role === 'staff' ? property_id : null;
+  const property_ids = normalizePropertyIds(role, req.body);
 
-  const errMsg = await validateUserPayload({ role, property_id: normalizedPropertyId, excludeId: id });
+  const errMsg = validateUserPayload({ role, property_ids });
   if (errMsg) return res.status(400).json({ error: errMsg });
+
+  const primaryPropId = property_ids[0] || null;
 
   try {
     await pool.query(
-      'UPDATE users SET username = $1, password = $2, property_id = $3, role = $4 WHERE id = $5',
-      [username, password, normalizedPropertyId, role, id]
+      `UPDATE users
+       SET username = $1, password = $2, property_id = $3, property_ids = $4, role = $5
+       WHERE id = $6`,
+      [username, password, primaryPropId, property_ids, role, id]
     );
     res.json({ success: true, message: '更新成功' });
   } catch (err) {
+    console.error('PUT /api/users 錯誤:', err);
     res.status(500).json({ error: '更新失敗' });
   }
 });
