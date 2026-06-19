@@ -337,8 +337,15 @@ app.post('/api/inventory/submit', async (req, res) => {
   const { property_id, inventory_data } = req.body;
   const today = new Date().toISOString().split('T')[0];
 
+  if (!property_id) {
+    return res.status(400).json({ error: '缺少館別' });
+  }
+  if (!Array.isArray(inventory_data) || inventory_data.length === 0) {
+    return res.status(400).json({ error: '沒有庫存資料' });
+  }
+
   try {
-    // 插入庫存
+    // 插入/更新本次提交的庫存
     for (const item of inventory_data) {
       const { product_id, quantity } = item;
       await pool.query(
@@ -350,67 +357,79 @@ app.post('/api/inventory/submit', async (req, res) => {
       );
     }
 
-    // 生成叫貨單
-    await generateOrder(res, today);
+    // 為「該館所屬群組」生成/更新訂單品項
+    await generateOrderForGroup(res, today, property_id);
   } catch (err) {
     console.error('提交庫存錯誤:', err);
-    res.status(500).json({ error: '提交失敗' });
+    if (!res.headersSent) {
+      res.status(500).json({ error: '提交失敗' });
+    }
   }
 });
 
-// 生成叫貨單
-async function generateOrder(res, today) {
+// 為單一館別（連同同群組的館別）生成或更新今日叫貨單
+async function generateOrderForGroup(res, today, submittedPropertyId) {
+  const client = await pool.connect();
   try {
-    const client = await pool.connect();
+    // 取得該館所屬群組（中正+福榮 同群組）
+    const groupResult = await client.query(
+      'SELECT group_id FROM properties WHERE id = $1',
+      [submittedPropertyId]
+    );
+    if (groupResult.rows.length === 0) {
+      return res.status(400).json({ error: '館別不存在' });
+    }
+    const groupId = groupResult.rows[0].group_id;
 
-    // 檢查今天是否已生成過訂單
+    // 取得或建立今日訂單（一天一張，多次提交會累加到同一張）
+    let orderId;
     const existingOrder = await client.query(
-      "SELECT id FROM orders WHERE order_date::date = $1::date",
+      'SELECT id FROM orders WHERE order_date = $1',
       [today]
     );
-
     if (existingOrder.rows.length > 0) {
-      client.release();
-      return res.json({ success: true, message: '今日已生成訂單' });
+      orderId = existingOrder.rows[0].id;
+    } else {
+      const insertResult = await client.query(
+        'INSERT INTO orders (order_date, status) VALUES ($1, $2) RETURNING id',
+        [today, 'pending']
+      );
+      orderId = insertResult.rows[0].id;
     }
 
-    // 獲取今日所有庫存記錄
+    // 清掉這張訂單中「同群組館別」的舊品項（重新提交會以最新庫存重算）
+    await client.query(
+      `DELETE FROM order_items
+       WHERE order_id = $1
+         AND property_id IN (SELECT id FROM properties WHERE group_id = $2)`,
+      [orderId, groupId]
+    );
+
+    // 取得今日同群組所有館別的庫存
     const inventoryResult = await client.query(`
       SELECT
-        i.property_id,
-        i.product_id,
-        i.quantity,
-        pd.unit_size,
-        pr.name as property_name,
-        pd.name as product_name,
-        pr.group_id
+        i.property_id, i.product_id, i.quantity,
+        pd.unit_size, pr.name AS property_name, pd.name AS product_name, pr.group_id
       FROM inventory i
       JOIN properties pr ON i.property_id = pr.id
       JOIN products pd ON i.product_id = pd.id
-      WHERE i.recorded_date = $1
+      WHERE i.recorded_date = $1 AND pr.group_id = $2
       ORDER BY i.property_id, i.product_id
-    `, [today]);
+    `, [today, groupId]);
 
     if (inventoryResult.rows.length === 0) {
-      client.release();
-      return res.json({ success: true, message: '沒有庫存記錄' });
+      return res.json({
+        success: true,
+        message: '庫存已提交，但目前沒有需要叫的品項',
+        order_id: orderId
+      });
     }
 
-    // 建立訂單
-    const orderResult = await client.query(
-      'INSERT INTO orders (order_date, status) VALUES ($1, $2) RETURNING id',
-      [today, 'pending']
-    );
-
-    const orderId = orderResult.rows[0].id;
-
-    // 依據群組合併庫存
-    const groupedInventory = {};
+    // 同群組同產品合併計算（中正+福榮 共用配額）
+    const merged = {};
     inventoryResult.rows.forEach(row => {
-      const key = `${row.group_id}_${row.product_id}`;
-      if (!groupedInventory[key]) {
-        groupedInventory[key] = {
-          group_id: row.group_id,
+      if (!merged[row.product_id]) {
+        merged[row.product_id] = {
           product_id: row.product_id,
           product_name: row.product_name,
           unit_size: row.unit_size,
@@ -418,26 +437,21 @@ async function generateOrder(res, today) {
           total_quantity: 0
         };
       }
-      groupedInventory[key].properties.push({
+      merged[row.product_id].properties.push({
         property_id: row.property_id,
         property_name: row.property_name,
         quantity: row.quantity
       });
-      groupedInventory[key].total_quantity += row.quantity;
+      merged[row.product_id].total_quantity += row.quantity;
     });
 
-    // 計算叫貨量
-    let itemsProcessed = 0;
-    const itemsToProcess = Object.keys(groupedInventory).length;
-
-    for (const [key, item] of Object.entries(groupedInventory)) {
+    let itemsAdded = 0;
+    for (const item of Object.values(merged)) {
       const firstPropId = item.properties[0].property_id;
-
       const quotaResult = await client.query(
         'SELECT boxes_per_month FROM monthly_quotas WHERE product_id = $1 AND property_id = $2',
         [item.product_id, firstPropId]
       );
-
       const quotaBoxes = quotaResult.rows.length > 0 ? quotaResult.rows[0].boxes_per_month : 5;
       const availableBoxes = Math.floor(item.total_quantity / item.unit_size);
       const boxesToOrder = Math.max(0, quotaBoxes - availableBoxes);
@@ -450,22 +464,23 @@ async function generateOrder(res, today) {
              VALUES ($1, $2, $3, $4, $5)`,
             [orderId, prop.property_id, item.product_id, prop.quantity, boxesToOrder]
           );
+          itemsAdded++;
         }
       }
-
-      itemsProcessed++;
-      if (itemsProcessed === itemsToProcess) {
-        client.release();
-        return res.json({
-          success: true,
-          message: '庫存已提交，叫貨單已生成',
-          order_id: orderId
-        });
-      }
     }
+
+    return res.json({
+      success: true,
+      message: itemsAdded > 0 ? `庫存已提交，本次新增 ${itemsAdded} 筆叫貨品項` : '庫存已提交（庫存充足，無需叫貨）',
+      order_id: orderId
+    });
   } catch (err) {
     console.error('生成叫貨單錯誤:', err);
-    res.status(500).json({ error: '生成訂單失敗' });
+    if (!res.headersSent) {
+      res.status(500).json({ error: '生成訂單失敗' });
+    }
+  } finally {
+    client.release();
   }
 }
 

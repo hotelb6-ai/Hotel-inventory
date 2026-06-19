@@ -440,6 +440,7 @@
 
       products.forEach(product => {
         const input = document.getElementById(`product_${product.id}`);
+        if (!input) return; // 沒啟用的品項不會渲染到 DOM，跳過
         const quantity = input.value;
 
         if (quantity !== '' && quantity !== null) {
