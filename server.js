@@ -7,9 +7,10 @@ const path = require('path');
 const app = express();
 const PORT = process.env.PORT || 5000;
 
-// PostgreSQL 連接
+// PostgreSQL 連接（Neon）
+// 優先讀 Render 後台的環境變數 DATABASE_URL，沒設時 fallback 到下面的 Neon 連線字串
 const pool = new Pool({
-  connectionString: process.env.DATABASE_URL || 'postgresql://hotel_inventory_db_c4m9_user:QlQQcZtkmpRoVxDxTmn3lGjsDhnFqElo@dpg-d8kht6sm0tmc73cneiig-a.oregon-postgres.render.com/hotel_inventory_db_c4m9',
+  connectionString: process.env.DATABASE_URL || 'postgresql://neondb_owner:npg_IMUYTKqQl70t@ep-floral-shadow-ao96t6rz.c-2.ap-southeast-1.aws.neon.tech/neondb?sslmode=require',
   ssl: {
     rejectUnauthorized: false
   }
