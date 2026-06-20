@@ -81,6 +81,15 @@
         <h2>叫貨單</h2>
         <p style="color: #666; margin-bottom: 20px;">系統根據庫存自動生成的叫貨單</p>
 
+        <div id="orderFilterArea" style="display: none; margin-bottom: 20px; padding: 14px 18px; background: #f5f5f5; border-radius: 8px;">
+          <label style="font-weight: 600; color: #333;">
+            📌 篩選館別：
+            <select id="orderPropertyFilter" onchange="renderOrders()" style="padding: 9px 14px; margin-left: 10px; border-radius: 6px; border: 1px solid #ccc; font-size: 14px; min-width: 160px; cursor: pointer;">
+              <option value="">全部館別</option>
+            </select>
+          </label>
+        </div>
+
         <div id="ordersContainer"></div>
       </div>
 
@@ -488,24 +497,18 @@
       }
     }
 
-    // ===== 加載叫貨單 =====
+    // ===== 加載叫貨單（會根據角色與多館主任過濾，並暫存全域給篩選用） =====
+    let allOrders = [];
+
     async function loadOrders() {
       try {
         const res = await fetch('/api/orders/latest');
         const orders = await res.json();
 
-        const container = document.getElementById('ordersContainer');
-        container.innerHTML = '';
-
-        if (orders.length === 0) {
-          container.innerHTML = '<p style="color: #999;">還沒有叫貨單</p>';
-          return;
-        }
-
         // 員工：只顯示自己負責的所有館別的訂單（多館主任會看到全部負責館）
         const userPropIds = getCurrentUserPropertyIds();
         const includesGroup3 = userPropIds.includes(3) || userPropIds.includes(4);
-        const filteredOrders = currentUser.role === 'admin'
+        allOrders = currentUser.role === 'admin'
           ? orders
           : orders.map(order => ({
               ...order,
@@ -517,37 +520,109 @@
               })
             })).filter(order => order.items.length > 0);
 
-        filteredOrders.forEach(order => {
-          const orderDiv = document.createElement('div');
-          orderDiv.className = 'product-item';
-          orderDiv.style.marginBottom = '20px';
-
-          let itemsHTML = '<table style="width: 100%; margin-top: 10px;"><thead><tr><th>館別</th><th>備品</th><th>剩餘量</th><th>叫貨箱數</th></tr></thead><tbody>';
-
-          order.items.forEach(item => {
-            itemsHTML += `<tr>
-              <td>${item.property_name}</td>
-              <td>${item.product_name}</td>
-              <td>${item.quantity_needed}個</td>
-              <td>${item.order_boxes}箱</td>
-            </tr>`;
-          });
-
-          itemsHTML += '</tbody></table>';
-
-          orderDiv.innerHTML = `
-            <div class="product-name">
-              訂單編號 #${order.id}
-              <span class="status-${order.status}">${order.status === 'pending' ? '待處理' : '已完成'}</span>
-            </div>
-            <div class="product-spec">訂單日期: ${order.order_date}</div>
-            ${itemsHTML}
-          `;
-          container.appendChild(orderDiv);
-        });
+        populateOrderPropertyFilter();
+        renderOrders();
       } catch (err) {
         console.error('獲取訂單失敗:', err);
       }
+    }
+
+    // 從所有訂單收集出現過的館別，填入篩選下拉選單
+    function populateOrderPropertyFilter() {
+      const select = document.getElementById('orderPropertyFilter');
+      const filterArea = document.getElementById('orderFilterArea');
+      const current = select.value;
+
+      const propertyNames = new Set();
+      allOrders.forEach(o => o.items.forEach(it => propertyNames.add(it.property_name)));
+
+      if (propertyNames.size <= 1) {
+        // 員工只負責一館時就不顯示篩選
+        filterArea.style.display = 'none';
+        return;
+      }
+
+      filterArea.style.display = 'block';
+      select.innerHTML = '<option value="">全部館別</option>';
+      Array.from(propertyNames).sort().forEach(name => {
+        const opt = document.createElement('option');
+        opt.value = name;
+        opt.textContent = name;
+        select.appendChild(opt);
+      });
+      select.value = current; // 保留使用者上次選擇
+    }
+
+    function renderOrders() {
+      const container = document.getElementById('ordersContainer');
+      const filterValue = document.getElementById('orderPropertyFilter').value;
+      container.innerHTML = '';
+
+      // 依篩選的館別過濾
+      const displayOrders = allOrders.map(order => ({
+        ...order,
+        items: filterValue ? order.items.filter(it => it.property_name === filterValue) : order.items
+      })).filter(order => order.items.length > 0);
+
+      if (displayOrders.length === 0) {
+        container.innerHTML = '<p style="color: #999; padding: 20px;">沒有符合的叫貨單</p>';
+        return;
+      }
+
+      displayOrders.forEach(order => {
+        const orderDiv = document.createElement('div');
+        orderDiv.className = 'product-item';
+        orderDiv.style.marginBottom = '24px';
+
+        // 把同一張訂單的品項按館別分組
+        const byProperty = {};
+        order.items.forEach(it => {
+          if (!byProperty[it.property_name]) byProperty[it.property_name] = [];
+          byProperty[it.property_name].push(it);
+        });
+
+        let propertySectionsHTML = '';
+        Object.entries(byProperty).forEach(([propName, items]) => {
+          let rowsHTML = '';
+          items.forEach(it => {
+            rowsHTML += `<tr>
+              <td style="padding: 8px;">${it.product_name}</td>
+              <td style="padding: 8px; text-align: right;">${it.quantity_needed}個</td>
+              <td style="padding: 8px; text-align: right; font-weight: 700; color: #d46b08;">${it.order_boxes}箱</td>
+            </tr>`;
+          });
+
+          propertySectionsHTML += `
+            <div style="margin-top: 15px; padding: 14px; background: #fffbe6; border-left: 5px solid #faad14; border-radius: 6px;">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; flex-wrap: wrap; gap: 8px;">
+                <div style="font-size: 20px; font-weight: 800; color: #333;">📍 ${propName}</div>
+                <div style="font-size: 14px; color: #666; background: white; padding: 4px 12px; border-radius: 12px; border: 1px solid #e0e0e0;">
+                  📅 填報日期：<strong style="color: #333;">${order.order_date}</strong>
+                </div>
+              </div>
+              <table style="width: 100%; border-collapse: collapse; background: white; border-radius: 6px; overflow: hidden;">
+                <thead>
+                  <tr style="background: #f0f0f0;">
+                    <th style="padding: 8px; text-align: left;">備品</th>
+                    <th style="padding: 8px; text-align: right;">剩餘量</th>
+                    <th style="padding: 8px; text-align: right;">叫貨箱數</th>
+                  </tr>
+                </thead>
+                <tbody>${rowsHTML}</tbody>
+              </table>
+            </div>
+          `;
+        });
+
+        orderDiv.innerHTML = `
+          <div class="product-name" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;">
+            <span>訂單編號 #${order.id}</span>
+            <span class="status-${order.status}">${order.status === 'pending' ? '待處理' : '已完成'}</span>
+          </div>
+          ${propertySectionsHTML}
+        `;
+        container.appendChild(orderDiv);
+      });
     }
 
     // ===== 加載歷史記錄（使用目前選中的館別） =====
