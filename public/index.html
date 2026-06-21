@@ -592,6 +592,7 @@
 
         let propertySectionsHTML = '';
         Object.entries(byProperty).forEach(([propName, items]) => {
+          const propertyId = items[0].property_id;
           let rowsHTML = '';
           items.forEach(it => {
             rowsHTML += `<tr>
@@ -601,12 +602,20 @@
             </tr>`;
           });
 
+          // 管理員專屬：單一館別操作按鈕（完成/刪除這館）
+          const propActions = currentUser.role === 'admin' ? `
+            <button onclick="deletePropertyFromOrder(${order.id}, ${propertyId}, '${propName.replace(/'/g, "\\'")}')" style="padding: 5px 12px; background: #ff4d4f; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: 600;">🗑️ 刪除此館</button>
+          ` : '';
+
           propertySectionsHTML += `
             <div style="margin-top: 15px; padding: 14px; background: #fffbe6; border-left: 5px solid #faad14; border-radius: 6px;">
               <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; flex-wrap: wrap; gap: 8px;">
                 <div style="font-size: 20px; font-weight: 800; color: #333;">📍 ${propName}</div>
-                <div style="font-size: 14px; color: #666; background: white; padding: 4px 12px; border-radius: 12px; border: 1px solid #e0e0e0;">
-                  📅 填報日期：<strong style="color: #333;">${order.order_date}</strong>
+                <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+                  <div style="font-size: 14px; color: #666; background: white; padding: 4px 12px; border-radius: 12px; border: 1px solid #e0e0e0;">
+                    📅 填報日期：<strong style="color: #333;">${order.order_date}</strong>
+                  </div>
+                  ${propActions}
                 </div>
               </div>
               <table style="width: 100%; border-collapse: collapse; background: white; border-radius: 6px; overflow: hidden;">
@@ -623,14 +632,13 @@
           `;
         });
 
-        // 管理員專屬操作按鈕（標記完成 / 重設待處理 / 刪除）
+        // 管理員專屬：訂單層級操作（完成/重設；刪除已移到各館卡片內）
         const adminActions = currentUser.role === 'admin' ? `
           <div style="display: flex; gap: 8px; flex-wrap: wrap;">
             ${order.status === 'pending'
               ? `<button onclick="updateOrderStatus(${order.id}, 'completed')" style="padding: 6px 14px; background: #52c41a; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 13px; font-weight: 600;">✅ 標記完成</button>`
               : `<button onclick="updateOrderStatus(${order.id}, 'pending')" style="padding: 6px 14px; background: #faad14; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 13px; font-weight: 600;">↩️ 重設待處理</button>`
             }
-            <button onclick="deleteOrder(${order.id})" style="padding: 6px 14px; background: #ff4d4f; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 13px; font-weight: 600;">🗑️ 刪除訂單</button>
           </div>
         ` : '';
 
@@ -669,11 +677,11 @@
       }
     }
 
-    // 管理員操作：刪除訂單
-    async function deleteOrder(id) {
-      if (!confirm(`⚠️ 確定要刪除訂單 #${id} 嗎？\n所有品項會一起被刪除，無法復原。`)) return;
+    // 管理員操作：刪除訂單中某一館的品項（其他館的資料保留）
+    async function deletePropertyFromOrder(orderId, propertyId, propName) {
+      if (!confirm(`⚠️ 確定要刪除訂單 #${orderId} 中「${propName}」的所有品項嗎？\n（其他館的資料會保留，刪除後無法復原）`)) return;
       try {
-        const res = await fetch(`/api/orders/${id}`, { method: 'DELETE' });
+        const res = await fetch(`/api/orders/${orderId}/property/${propertyId}`, { method: 'DELETE' });
         const data = await res.json();
         if (res.ok && data.success) {
           loadOrders();

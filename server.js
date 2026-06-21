@@ -545,7 +545,38 @@ app.put('/api/orders/:id/status', async (req, res) => {
   }
 });
 
-// 刪除訂單（含所有品項）
+// 刪除訂單中「指定館別」的所有品項；若訂單已無品項則一併刪除訂單
+app.delete('/api/orders/:orderId/property/:propertyId', async (req, res) => {
+  const orderId = parseInt(req.params.orderId);
+  const propertyId = parseInt(req.params.propertyId);
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const del = await client.query(
+      'DELETE FROM order_items WHERE order_id = $1 AND property_id = $2 RETURNING id',
+      [orderId, propertyId]
+    );
+    let orderDeleted = false;
+    const remaining = await client.query(
+      'SELECT COUNT(*)::int AS cnt FROM order_items WHERE order_id = $1',
+      [orderId]
+    );
+    if (remaining.rows[0].cnt === 0) {
+      await client.query('DELETE FROM orders WHERE id = $1', [orderId]);
+      orderDeleted = true;
+    }
+    await client.query('COMMIT');
+    res.json({ success: true, deleted_items: del.rowCount, order_deleted: orderDeleted });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error('刪除館別訂單錯誤:', err);
+    res.status(500).json({ error: '刪除失敗' });
+  } finally {
+    client.release();
+  }
+});
+
+// 刪除整張訂單（含所有品項）- 保留供舊版前端使用，但 UI 已移除入口
 app.delete('/api/orders/:id', async (req, res) => {
   const id = parseInt(req.params.id);
   const client = await pool.connect();
