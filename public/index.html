@@ -98,6 +98,15 @@
         <h2>庫存歷史記錄</h2>
         <p style="color: #666; margin-bottom: 20px;">過去 12 個月的庫存記錄</p>
 
+        <div id="historyFilterArea" style="display: none; margin-bottom: 20px; padding: 14px 18px; background: #f5f5f5; border-radius: 8px;">
+          <label style="font-weight: 600; color: #333;">
+            🏨 選擇館別：
+            <select id="historyPropertyFilter" onchange="loadHistory()" style="padding: 9px 14px; margin-left: 10px; border-radius: 6px; border: 1px solid #ccc; font-size: 14px; min-width: 160px; cursor: pointer;">
+              <option value="">-- 請選擇館別 --</option>
+            </select>
+          </label>
+        </div>
+
         <div id="historyContainer"></div>
       </div>
 
@@ -614,10 +623,24 @@
           `;
         });
 
+        // 管理員專屬操作按鈕（標記完成 / 重設待處理 / 刪除）
+        const adminActions = currentUser.role === 'admin' ? `
+          <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+            ${order.status === 'pending'
+              ? `<button onclick="updateOrderStatus(${order.id}, 'completed')" style="padding: 6px 14px; background: #52c41a; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 13px; font-weight: 600;">✅ 標記完成</button>`
+              : `<button onclick="updateOrderStatus(${order.id}, 'pending')" style="padding: 6px 14px; background: #faad14; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 13px; font-weight: 600;">↩️ 重設待處理</button>`
+            }
+            <button onclick="deleteOrder(${order.id})" style="padding: 6px 14px; background: #ff4d4f; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 13px; font-weight: 600;">🗑️ 刪除訂單</button>
+          </div>
+        ` : '';
+
         orderDiv.innerHTML = `
           <div class="product-name" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;">
             <span>訂單編號 #${order.id}</span>
-            <span class="status-${order.status}">${order.status === 'pending' ? '待處理' : '已完成'}</span>
+            <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
+              <span class="status-${order.status}">${order.status === 'pending' ? '待處理' : '✅ 已完成'}</span>
+              ${adminActions}
+            </div>
           </div>
           ${propertySectionsHTML}
         `;
@@ -625,12 +648,77 @@
       });
     }
 
-    // ===== 加載歷史記錄（使用目前選中的館別） =====
+    // 管理員操作：標記訂單狀態
+    async function updateOrderStatus(id, status) {
+      const verb = status === 'completed' ? '標記為已完成' : '重設為待處理';
+      if (!confirm(`確定要把訂單 #${id} ${verb}嗎？`)) return;
+      try {
+        const res = await fetch(`/api/orders/${id}/status`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ status })
+        });
+        const data = await res.json();
+        if (res.ok && data.success) {
+          loadOrders();
+        } else {
+          alert('更新失敗：' + (data.error || '未知錯誤'));
+        }
+      } catch (err) {
+        alert('更新失敗：' + err.message);
+      }
+    }
+
+    // 管理員操作：刪除訂單
+    async function deleteOrder(id) {
+      if (!confirm(`⚠️ 確定要刪除訂單 #${id} 嗎？\n所有品項會一起被刪除，無法復原。`)) return;
+      try {
+        const res = await fetch(`/api/orders/${id}`, { method: 'DELETE' });
+        const data = await res.json();
+        if (res.ok && data.success) {
+          loadOrders();
+        } else {
+          alert('刪除失敗：' + (data.error || '未知錯誤'));
+        }
+      } catch (err) {
+        alert('刪除失敗：' + err.message);
+      }
+    }
+
+    // ===== 加載歷史記錄（管理員可選館別，員工用 selectedPropertyId） =====
     async function loadHistory() {
-      const propertyId = selectedPropertyId || getCurrentUserPropertyIds()[0];
-      if (!propertyId) {
-        document.getElementById('historyContainer').innerHTML = '<p>管理員無法查看單個館別的歷史記錄</p>';
-        return;
+      const container = document.getElementById('historyContainer');
+      const filterArea = document.getElementById('historyFilterArea');
+      const isAdmin = currentUser.role === 'admin';
+
+      let propertyId;
+      if (isAdmin) {
+        // 管理員：顯示館別下拉
+        const select = document.getElementById('historyPropertyFilter');
+        if (!select.dataset.populated) {
+          select.innerHTML = '<option value="">-- 請選擇館別 --</option>';
+          properties.forEach(p => {
+            if (p.name === '福榮') return; // 與中正合併
+            const opt = document.createElement('option');
+            opt.value = p.id;
+            opt.textContent = p.name;
+            select.appendChild(opt);
+          });
+          select.dataset.populated = '1';
+        }
+        filterArea.style.display = 'block';
+        propertyId = select.value;
+        if (!propertyId) {
+          container.innerHTML = '<p style="color: #999; padding: 20px;">請選擇要查看的館別</p>';
+          return;
+        }
+      } else {
+        filterArea.style.display = 'none';
+        propertyId = selectedPropertyId || getCurrentUserPropertyIds()[0];
+        if (!propertyId) {
+          container.innerHTML = '<p>無法取得館別資訊</p>';
+          return;
+        }
       }
 
       try {

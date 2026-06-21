@@ -529,6 +529,41 @@ app.get('/api/orders/latest', async (req, res) => {
   }
 });
 
+// 更新訂單狀態（標記完成 / 重設為待處理）
+app.put('/api/orders/:id/status', async (req, res) => {
+  const id = parseInt(req.params.id);
+  const { status } = req.body;
+  if (!['pending', 'completed'].includes(status)) {
+    return res.status(400).json({ error: '狀態無效' });
+  }
+  try {
+    await pool.query('UPDATE orders SET status = $1 WHERE id = $2', [status, id]);
+    res.json({ success: true });
+  } catch (err) {
+    console.error('更新訂單狀態錯誤:', err);
+    res.status(500).json({ error: '更新失敗' });
+  }
+});
+
+// 刪除訂單（含所有品項）
+app.delete('/api/orders/:id', async (req, res) => {
+  const id = parseInt(req.params.id);
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    await client.query('DELETE FROM order_items WHERE order_id = $1', [id]);
+    await client.query('DELETE FROM orders WHERE id = $1', [id]);
+    await client.query('COMMIT');
+    res.json({ success: true, message: '訂單已刪除' });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error('刪除訂單錯誤:', err);
+    res.status(500).json({ error: '刪除失敗' });
+  } finally {
+    client.release();
+  }
+});
+
 // 獲取庫存歷史
 app.get('/api/inventory/:propertyId', async (req, res) => {
   const propertyId = req.params.propertyId;
