@@ -8,9 +8,13 @@ const app = express();
 const PORT = process.env.PORT || 5000;
 
 // PostgreSQL 連接（Neon）
-// 優先讀 Render 後台的環境變數 DATABASE_URL，沒設時 fallback 到下面的 Neon 連線字串
+// 連線字串只從 Render 後台的環境變數 DATABASE_URL 讀取，不在程式碼裡寫死
+if (!process.env.DATABASE_URL) {
+  console.error('❌ 環境變數 DATABASE_URL 未設定，無法連線資料庫');
+  process.exit(1);
+}
 const pool = new Pool({
-  connectionString: process.env.DATABASE_URL || 'postgresql://neondb_owner:npg_IMUYTKqQl70t@ep-floral-shadow-ao96t6rz.c-2.ap-southeast-1.aws.neon.tech/neondb?sslmode=require',
+  connectionString: process.env.DATABASE_URL,
   ssl: {
     rejectUnauthorized: false
   }
