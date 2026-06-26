@@ -101,6 +101,12 @@ async function initDatabase() {
         AND (property_ids IS NULL OR array_length(property_ids, 1) IS NULL)
     `);
 
+    // Schema 遷移：products 表新增 unit 欄位（箱/袋/包/瓶...）
+    await client.query(`ALTER TABLE products ADD COLUMN IF NOT EXISTS unit TEXT DEFAULT '箱'`);
+    // 一次性預設：茶包系列改為「袋」，條棒/咖啡包/奶茶包改為「包」（只在仍是預設值時更新，避免覆蓋使用者後續調整）
+    await client.query(`UPDATE products SET unit = '袋' WHERE name IN ('綠茶包', '烏龍茶包', '洋甘菊茶包') AND (unit IS NULL OR unit = '箱')`);
+    await client.query(`UPDATE products SET unit = '包' WHERE name IN ('條棒', '咖啡包', '奶茶包') AND (unit IS NULL OR unit = '箱')`);
+
     console.log('✅ 資料庫表格建立完成');
 
     // 種子數據
@@ -496,7 +502,7 @@ app.get('/api/orders/latest', async (req, res) => {
       SELECT
         o.id, o.order_date, o.status,
         oi.property_id, oi.product_id, oi.quantity_needed, oi.order_boxes,
-        pr.name as property_name, pd.name as product_name
+        pr.name as property_name, pd.name as product_name, pd.unit as product_unit
       FROM orders o
       LEFT JOIN order_items oi ON o.id = oi.order_id
       LEFT JOIN properties pr ON oi.property_id = pr.id
@@ -521,6 +527,7 @@ app.get('/api/orders/latest', async (req, res) => {
           property_name: row.property_name,
           product_id: row.product_id,
           product_name: row.product_name,
+          product_unit: row.product_unit || '箱',
           quantity_needed: row.quantity_needed,
           order_boxes: row.order_boxes
         });
@@ -606,7 +613,7 @@ app.get('/api/inventory/:propertyId', async (req, res) => {
     const result = await pool.query(`
       SELECT
         i.product_id, i.quantity, i.recorded_date,
-        pd.name as product_name, pd.unit_size
+        pd.name as product_name, pd.unit_size, pd.unit
       FROM inventory i
       JOIN products pd ON i.product_id = pd.id
       WHERE i.property_id = $1
@@ -622,26 +629,27 @@ app.get('/api/inventory/:propertyId', async (req, res) => {
 
 // 新增備品
 app.post('/api/products', async (req, res) => {
-  const { name, unit_size } = req.body;
+  const { name, unit_size, unit } = req.body;
   try {
     const result = await pool.query(
-      'INSERT INTO products (name, unit_size, threshold_percent) VALUES ($1, $2, $3) RETURNING *',
-      [name, unit_size, 50]
+      'INSERT INTO products (name, unit_size, unit, threshold_percent) VALUES ($1, $2, $3, $4) RETURNING *',
+      [name, unit_size, (unit && unit.trim()) || '箱', 50]
     );
     res.json({ success: true, product: result.rows[0] });
   } catch (err) {
+    console.error('新增備品錯誤:', err);
     res.status(500).json({ error: '新增備品失敗' });
   }
 });
 
 // 更新備品
 app.put('/api/products/:id', async (req, res) => {
-  const { name, unit_size } = req.body;
+  const { name, unit_size, unit } = req.body;
   const id = req.params.id;
   try {
     await pool.query(
-      'UPDATE products SET name = $1, unit_size = $2 WHERE id = $3',
-      [name, unit_size, id]
+      'UPDATE products SET name = $1, unit_size = $2, unit = $3 WHERE id = $4',
+      [name, unit_size, (unit && unit.trim()) || '箱', id]
     );
     res.json({ success: true, message: '更新成功' });
   } catch (err) {
