@@ -1011,6 +1011,8 @@
         // 中正和福榮共用配額：顯示單一館的值（儲存時會同步到兩館）
         const mainQuota = quotaList[0];
         const displayBoxes = mainQuota.boxes_per_month;
+        const productInfo = products.find(p => p.name === productName);
+        const unit = productInfo?.unit || '箱';
 
         card.style.cssText = `
           background: ${bgColor};
@@ -1023,20 +1025,23 @@
           flex-direction: column;
           justify-content: space-between;
           gap: 8px;
-          min-height: 120px;
+          min-height: 130px;
         `;
         card.innerHTML = `
           <div style="font-weight: 800; font-size: 16px; color: #1a1a1a; line-height: 1.25; padding: 2px;">
             ${productName}
           </div>
-          <input type="number"
-            id="quota_${mainQuota.id}"
-            data-quota-id="${mainQuota.id}"
-            data-property-id="${propertyId}"
-            value="${displayBoxes}"
-            min="0"
-            max="100"
-            style="width: 100%; padding: 6px; border: 2px solid rgba(0,0,0,0.15); border-radius: 6px; font-size: 30px; font-weight: 800; text-align: center; background: rgba(255,255,255,0.55); color: #1a1a1a; line-height: 1;">
+          <div style="display: flex; align-items: center; gap: 6px;">
+            <input type="number"
+              id="quota_${mainQuota.id}"
+              data-quota-id="${mainQuota.id}"
+              data-property-id="${propertyId}"
+              value="${displayBoxes}"
+              min="0"
+              max="100"
+              style="flex: 1; min-width: 0; padding: 6px; border: 2px solid rgba(0,0,0,0.15); border-radius: 6px; font-size: 30px; font-weight: 800; text-align: center; background: rgba(255,255,255,0.55); color: #1a1a1a; line-height: 1;">
+            <span style="font-size: 18px; font-weight: 800; color: #1a1a1a; flex-shrink: 0;">${unit}/月</span>
+          </div>
         `;
         gridDiv.appendChild(card);
         colorIndex++;
