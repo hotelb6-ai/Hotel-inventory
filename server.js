@@ -107,6 +107,25 @@ async function initDatabase() {
     await client.query(`UPDATE products SET unit = '袋' WHERE name IN ('綠茶包', '烏龍茶包', '洋甘菊茶包') AND (unit IS NULL OR unit = '箱')`);
     await client.query(`UPDATE products SET unit = '包' WHERE name IN ('條棒', '咖啡包', '奶茶包') AND (unit IS NULL OR unit = '箱')`);
 
+    // Schema 遷移：清掉 order_items 已存在的重複品項，並加上唯一限制避免再發生
+    await client.query(`
+      DELETE FROM order_items
+      WHERE id NOT IN (
+        SELECT MIN(id) FROM order_items
+        GROUP BY order_id, property_id, product_id
+      )
+    `);
+    await client.query(`
+      DO $$ BEGIN
+        IF NOT EXISTS (
+          SELECT 1 FROM pg_constraint WHERE conname = 'order_items_uniq'
+        ) THEN
+          ALTER TABLE order_items
+            ADD CONSTRAINT order_items_uniq UNIQUE (order_id, property_id, product_id);
+        END IF;
+      END $$;
+    `);
+
     console.log('✅ 資料庫表格建立完成');
 
     // 種子數據
@@ -472,7 +491,10 @@ async function generateOrderForGroup(res, today, submittedPropertyId) {
           await client.query(
             `INSERT INTO order_items
              (order_id, property_id, product_id, quantity_needed, order_boxes)
-             VALUES ($1, $2, $3, $4, $5)`,
+             VALUES ($1, $2, $3, $4, $5)
+             ON CONFLICT (order_id, property_id, product_id) DO UPDATE
+               SET quantity_needed = EXCLUDED.quantity_needed,
+                   order_boxes = EXCLUDED.order_boxes`,
             [orderId, prop.property_id, item.product_id, prop.quantity, boxesToOrder]
           );
           itemsAdded++;

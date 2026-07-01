@@ -71,7 +71,7 @@
         <div id="inventoryForm" class="inventory-form"></div>
 
         <div class="btn-group">
-          <button class="btn btn-primary" onclick="submitInventory()">✅ 提交庫存</button>
+          <button id="submitInventoryBtn" class="btn btn-primary" onclick="submitInventory()">✅ 提交庫存</button>
           <button class="btn" onclick="location.reload()" style="background: #95a5a6; color: white;">🔄 重設表單</button>
         </div>
       </div>
@@ -456,6 +456,10 @@
 
     // ===== 提交庫存 =====
     async function submitInventory() {
+      const submitBtn = document.getElementById('submitInventoryBtn');
+      // 防呆：若已在提交中，直接忽略後續連按
+      if (submitBtn && submitBtn.disabled) return;
+
       const inventory_data = [];
       let hasData = false;
 
@@ -483,6 +487,14 @@
         return;
       }
 
+      // 鎖住按鈕，避免使用者連按造成重複資料
+      if (submitBtn) {
+        submitBtn.disabled = true;
+        submitBtn.textContent = '⏳ 提交中，請稍候...';
+        submitBtn.style.opacity = '0.6';
+        submitBtn.style.cursor = 'not-allowed';
+      }
+
       try {
         const res = await fetch('/api/inventory/submit', {
           method: 'POST',
@@ -506,6 +518,14 @@
         }
       } catch (err) {
         showError('errorMessage', '網路錯誤: ' + err.message);
+      } finally {
+        // 恢復按鈕（不論成功失敗）
+        if (submitBtn) {
+          submitBtn.disabled = false;
+          submitBtn.textContent = '✅ 提交庫存';
+          submitBtn.style.opacity = '';
+          submitBtn.style.cursor = '';
+        }
       }
     }
 
